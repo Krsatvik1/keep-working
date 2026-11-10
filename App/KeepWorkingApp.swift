@@ -19,9 +19,9 @@ struct KeepWorkingApp: App {
         }
     }
 
-    /// Claude's own menu-bar spark, copied in from Claude.app at build time.
+    /// The character's head, drawn by Tools/make-icons.swift.
     private static let logo: NSImage = {
-        let img = NSImage(named: "TrayIconTemplate") ?? NSImage(systemSymbolName: "asterisk", accessibilityDescription: "Claude")!
+        let img = NSImage(named: "MenuIconTemplate") ?? NSImage(systemSymbolName: "asterisk", accessibilityDescription: "Keep Working")!
         img.isTemplate = true
         img.size = NSSize(width: 18, height: 18)
         return img

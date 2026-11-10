@@ -23,7 +23,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict></plist>
 PLIST
-cp /Applications/Claude.app/Contents/Resources/electron.icns "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null || true
+cp App/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign -s - --force "$APP" >/dev/null 2>&1 || true
 if [[ "$1" == "--capture" || "$1" == "--frames" || "$1" == "--sheets" ]]; then
   "$APP/Contents/MacOS/Keep Working Preview" "$@"

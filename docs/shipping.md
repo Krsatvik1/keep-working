@@ -44,4 +44,7 @@ Most work for the weakest result. Not recommended.
   - People must allow it in System Settings → Privacy & Security (or `xattr -dr com.apple.quarantine`) on first run.
   - It is signed with this Mac's free *Apple Development* identity. Whether the widget extension loads on another
     Mac with that signature, or with an ad-hoc one, is **untested**. Test on a second Mac before sharing.
-  - Blocker 1 (Claude's icon, Clawd-style character) still has to go before the repo goes public.
+  - Blocker 1, icon: done (11 Nov). The app and menu-bar icons are now the character's own head and eyes,
+    drawn by `Tools/make-icons.swift`, and nothing is copied from Claude.app any more.
+  - Blocker 1, character: Satvik's call is to keep it as is. It still resembles Anthropic's Clawd, so weigh that
+    before the repo goes public.

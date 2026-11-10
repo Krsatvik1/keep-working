@@ -18,7 +18,10 @@ targets:
   KeepWorking:
     type: application
     platform: macOS
-    sources: [App, Shared]
+    sources:
+      - path: App
+        excludes: ["Resources/AppIcon-1024.png"]
+      - Shared
     info:
       path: App/Info.plist
       properties:
@@ -38,16 +41,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.KeepWorking
         PRODUCT_NAME: Keep Working
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-    preBuildScripts:
-      # The Claude logo comes from the installed Claude app at build time; it is never committed here.
-      - name: Claude logo
-        basedOnDependencyAnalysis: false
-        script: |
-          R=/Applications/Claude.app/Contents/Resources
-          D="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
-          mkdir -p "$D"
-          cp "$R/electron.icns" "$D/AppIcon.icns" || echo "warning: Claude.app icon not found"
-          cp "$R"/TrayIconTemplate*.png "$D/" || echo "warning: Claude.app menu-bar icon not found"
     dependencies:
       - target: KeepWorkingWidget
   KeepWorkingWidget:
