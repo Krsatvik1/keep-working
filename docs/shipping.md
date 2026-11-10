@@ -32,3 +32,15 @@ Most work for the weakest result. Not recommended.
 2. Move file reading to the app, which writes a small snapshot to an app group. The widget then reads one file. This is cleaner for A as well, and keeps the door to B open.
 3. Join the Developer Program, create the Developer ID cert, and add a `release.sh` (archive → sign → notarize → staple → DMG).
 4. A first-run screen: what it reads, that it's read-only, how to remove it.
+
+## Decision (11 Nov 2026)
+
+- **Name: Afoot.** It means "underway", and the character is literally on foot. No app or repo by that name
+  turned up in this niche (Claude Status, Clyde, HexDeck, Claude Visor, ClaudeDot already exist; the walking
+  character is the difference). Bundle ids `xyz.krsatvik.Afoot`, link scheme `afoot://`.
+- **Route: direct download from GitHub, private for now.** No Apple Developer account, so no Developer ID and
+  no notarization. Consequences to solve before sharing:
+  - People must allow it in System Settings → Privacy & Security (or `xattr -dr com.apple.quarantine`) on first run.
+  - It is signed with this Mac's free *Apple Development* identity. Whether the widget extension loads on another
+    Mac with that signature, or with an ad-hoc one, is **untested**. Test on a second Mac before sharing.
+  - Blocker 1 (Claude's icon, Clawd-style character) still has to go before the repo goes public.

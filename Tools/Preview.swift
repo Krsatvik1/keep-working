@@ -1,4 +1,4 @@
-// Pulse Preview: the widget's own views in a window, stepping through every state, with the animation tick
+// Afoot Preview: the widget's own views in a window, stepping through every state, with the animation tick
 // running live. Build and open with Tools/preview.sh.
 //   ← / → or the side arrows: previous / next state      space: pause the tick      D: light / dark
 //   --capture <dir>  saves every state at two ticks as PNGs of the window, then quits
@@ -171,7 +171,7 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         let host = NSHostingView(rootView: PreviewRoot(model: model))
         window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Pulse Preview"
+        window.title = "Afoot Preview"
         window.contentView = host
         window.center()
         window.makeKeyAndOrderFront(nil)

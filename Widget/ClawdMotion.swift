@@ -3,7 +3,7 @@ import SwiftUI
 // The character as a pure function of wall-clock time.
 //
 // Every layer of motion (gait, blink, glance, marks) is a loop of its own over real seconds, so it can be
-// played two ways: live in Pulse Preview, or on the desktop as a flip-book of frames cut from these loops.
+// played two ways: live in Afoot Preview, or on the desktop as a flip-book of frames cut from these loops.
 // The walk across the bar is not here: that travel is a plain glide between timeline entries, which the
 // desktop widget does play. Loops use uneven lengths so the blink, glance and gait never fall into step.
 
@@ -335,7 +335,7 @@ struct ClawdSprite: View {
 
 /// The character, looping on its own. A widget can't run code, so on the desktop each loop is cut into
 /// frames, and macOS's clock-hand rotation (the effect that sweeps an analog clock's second hand) spins a
-/// mask that shows one frame at a time. In Pulse Preview, a TimelineView plays the same frames.
+/// mask that shows one frame at a time. In Afoot Preview, a TimelineView plays the same frames.
 struct ClawdLoop: View {
     let mood: Mood
     var px: CGFloat = 5

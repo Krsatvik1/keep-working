@@ -1,4 +1,4 @@
-# Session Pulse
+# Afoot
 
 A macOS desktop widget showing your 10 most recent Claude sessions and how far along each one is.
 Click a row to open that session in the Claude app.
@@ -58,7 +58,7 @@ desktop app changes how it stores sessions; `SessionStore.swift` is the one plac
 
 ## Preview every state
 
-`Tools/preview.sh` builds **Pulse Preview**, a small app that draws the widget's own views in a window:
+`Tools/preview.sh` builds **Afoot Preview**, a small app that draws the widget's own views in a window:
 all four sizes at once, with arrows (or ← →) to step through every state (needs you, working with and
 without a list, finished, paused, idle, terminal, no sessions, can't read, and your live sessions).
 The animation tick runs live; space pauses it, D switches light/dark.

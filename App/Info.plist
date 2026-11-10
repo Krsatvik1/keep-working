@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Session Pulse</string>
+	<string>Afoot</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Session Pulse</string>
+	<string>Afoot</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,10 +24,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>xyz.krsatvik.SessionPulse</string>
+			<string>xyz.krsatvik.Afoot</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>sessionpulse</string>
+				<string>afoot</string>
 			</array>
 		</dict>
 	</array>

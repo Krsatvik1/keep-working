@@ -7,7 +7,7 @@ import WidgetKit
 /// A small menu-bar agent. Its real job is to watch Claude's session files and tell the widget to refresh,
 /// so progress moves within seconds instead of on WidgetKit's own slow schedule.
 @main
-struct SessionPulseApp: App {
+struct AfootApp: App {
     @NSApplicationDelegateAdaptor(PulseAppDelegate.self) private var delegate
     @StateObject private var model = PulseModel()
 
@@ -28,7 +28,7 @@ struct SessionPulseApp: App {
     }()
 }
 
-/// Receives widget clicks (sessionpulse://open?to=…) and opens the session in Claude.
+/// Receives widget clicks (afoot://open?to=…) and opens the session in Claude.
 final class PulseAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
@@ -83,7 +83,7 @@ final class PulseModel: ObservableObject {
         do {
             if launchAtLogin { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() }
         } catch {
-            NSLog("Session Pulse: login item change failed: \(error)")
+            NSLog("Afoot: login item change failed: \(error)")
         }
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
@@ -110,7 +110,7 @@ struct MenuContent: View {
         }
         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { _ in model.toggleLaunchAtLogin() }))
         Divider()
-        Button("Quit Session Pulse") { NSApp.terminate(nil) }
+        Button("Quit Afoot") { NSApp.terminate(nil) }
     }
 
     private func label(for s: SessionSnapshot) -> String {
