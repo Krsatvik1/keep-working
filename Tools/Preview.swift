@@ -190,14 +190,15 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
 
-    /// A burst while the tick plays: one frame every 0.25 s for 8 s, to check the motion is continuous.
+    /// A burst while the tick plays: 64 frames 0.4 s apart (about 26 s, a full walk turn), to check the motion.
     private func frames(scenario: Int, to dir: String) async {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         model.index = max(0, scenario - 1)
         try? await Task.sleep(for: .seconds(2.5))
-        for f in 0..<32 {
-            snapshot(String(format: "%@/f%02d.png", dir, f))
-            try? await Task.sleep(for: .seconds(0.25))
+        let start = Date()
+        for f in 0..<64 {
+            snapshot(String(format: "%@/f%02d-%05d.png", dir, f, Int(Date().timeIntervalSince(start) * 1000)))
+            try? await Task.sleep(for: .seconds(0.4))
         }
         NSApp.terminate(nil)
     }

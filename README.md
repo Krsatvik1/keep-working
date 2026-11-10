@@ -63,7 +63,7 @@ all four sizes at once, with arrows (or ← →) to step through every state (ne
 without a list, finished, paused, idle, terminal, no sessions, can't read, and your live sessions).
 The animation tick runs live; space pauses it, D switches light/dark.
 `Tools/preview.sh --capture <dir>` saves every state at two ticks, light and dark, as PNGs of the window;
-`Tools/preview.sh --frames <state number> <dir>` saves 32 frames 0.25 s apart, to check motion.
+`Tools/preview.sh --frames <state number> <dir>` saves 64 frames about 0.4 s apart (a full walk turn), to check motion.
 
 Motion: a widget only animates from one timeline entry to the next, so entries are 2 s apart and every
 animated value glides for the whole beat to its next keyframe (`Beat` in the widget file).

@@ -18,9 +18,9 @@ struct PulseEntry: TimelineEntry {
 enum Beat {
     static let seconds: TimeInterval = 2
     /// Back-and-forth values (bob, sway, breathing): eased, so a ping-pong reads as a sine.
-    static let ease = Animation.easeInOut(duration: seconds)
+    static let ease = Animation.easeInOut(duration: seconds * 1.1)
     /// Travel and spin: constant speed.
-    static let linear = Animation.linear(duration: seconds)
+    static let linear = Animation.linear(duration: seconds * 1.1)
     /// A change of state: one smooth morph.
     static let morph = Animation.smooth(duration: 0.9)
 }
@@ -235,6 +235,8 @@ struct Clawd: View {
     var tick: Int? = nil
     /// Width of one half-cell in points; a half-row is 1.7× taller, like a monospace glyph.
     var px: CGFloat = 5
+    /// Mirrors the creature (not its "?"/"z") so it faces the way it walks.
+    var facingLeft = false
 
     static let cols: CGFloat = 20
     static let head: CGFloat = 4      // headroom rows for raised arms, jumps and marks
@@ -253,12 +255,14 @@ struct Clawd: View {
                 // Eyes are holes, so whatever is behind the card shows through.
                 ForEach(Array(p.eyes.enumerated()), id: \.offset) { _, c in cell(c, p.lift).blendMode(.destinationOut) }
             }
+            .frame(width: Self.cols * px, height: (Self.head + 5) * py, alignment: .topLeading)
             .compositingGroup()
+            .scaleEffect(x: facingLeft ? -1 : 1, anchor: .center)
             // "?" and "z" on a square pixel grid of their own, so they match the creature.
             ForEach(Array(p.marks.enumerated()), id: \.offset) { _, m in
                 glyph(m.bits, unit: px * m.scale)
                     .opacity(m.opacity)
-                    .offset(x: m.x * px, y: (m.y + Self.head) * py)
+                    .offset(x: markX(m) * px, y: (m.y + Self.head) * py)
             }
         }
         .foregroundStyle(color)
@@ -266,6 +270,13 @@ struct Clawd: View {
         .animation(Beat.ease, value: t)
         .animation(Beat.morph, value: mood)
         .accessibilityHidden(true)
+    }
+
+    /// A mark keeps reading the right way round; only its place mirrors with the body.
+    private func markX(_ m: Mark) -> CGFloat {
+        guard facingLeft else { return m.x }
+        let w = CGFloat(m.bits.first?.count ?? 0) * m.scale
+        return Self.cols - m.x - w
     }
 
     private var color: AnyShapeStyle {
@@ -338,6 +349,7 @@ struct Clawd: View {
             p.armL = Part(x: 1, y: odd ? 1.6 : 2, w: 2, h: 1)
             p.armR = Part(x: 15, y: odd ? 2 : 1.6, w: 2, h: 1)
             p.cursor = odd ? 0.15 : 1
+            p.lift = odd ? -0.25 : 0
             p.legs = odd ? [1, 0.4, 1, 0.4] : [0.4, 1, 0.4, 1]
         case .waiting:
             // Waving for attention: arm out, forearm up, the hand rocking side to side under a "?".
@@ -346,6 +358,7 @@ struct Clawd: View {
             p.hand = Part(x: odd ? 16.5 : 15.5, y: -1.5, w: 2, h: 1)
             p.eyes = Pose.openEyes(dx: 0.5, y: 0.7, h: 1)
             p.legs = odd ? [1, 0.4, 1, 0.4] : [0.4, 1, 0.4, 1]
+            p.lift = odd ? -0.25 : 0
             p.marks = [Mark(bits: Self.question, x: odd ? 16.9 : 15.9, y: -4, scale: 0.55)]
         case .done:
             // Ta-da: arms flung wide, ^ ^ eyes, a hop.
@@ -414,7 +427,7 @@ struct Hero: View {
                         VStack(alignment: .leading, spacing: 1) {
                             GeometryReader { g in
                                 let w = Clawd.size(px: 5).width
-                                Clawd(mood: s.mood, px: 5)
+                                Clawd(mood: s.mood, px: 5, facingLeft: walkingLeft)
                                     .offset(x: max(0, g.size.width - w) * standX)
                                     .animation(Beat.linear, value: standX)
                             }
@@ -440,7 +453,19 @@ struct Hero: View {
             }
             .padding(fullBleed ? 0 : compact ? 12 : 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(fullBleed ? AnyShapeStyle(Color.clear) : background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background {
+                if !fullBleed {
+                    let card = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    ZStack {
+                        card.fill(background)
+                        // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
+                        card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
+                                                 startPoint: .top, endPoint: .bottom))
+                            .opacity(s.state == .waiting && tick % 2 == 1 ? 1 : 0)
+                    }
+                    .animation(Beat.ease, value: tick)
+                }
+            }
             .overlay {
                 // Monochrome desktop mode drops the clay; keep "needs you" visible with an outline.
                 if s.state == .waiting && mode != .fullColor && !fullBleed {
@@ -467,14 +492,21 @@ struct Hero: View {
         }
         .font(.system(size: 11.5, weight: .semibold))
         .foregroundStyle(chipColor)
+        .animation(Beat.ease, value: tick)
     }
 
     /// Where the character stands along the bar, 0…1. While working or waiting it paces slowly from end
     /// to end, one step a tick; otherwise it stays over the current step.
-    private var standX: CGFloat {
-        if s.mood == .working || s.mood == .waiting {
-            let period = 12, phase = tick % period, half = period / 2
-            return CGFloat(phase <= half ? phase : period - phase) / CGFloat(half)
+    private var standX: CGFloat { position(at: tick) }
+
+    private var walks: Bool { s.mood == .working || s.mood == .waiting }
+    private var walkingLeft: Bool { walks && position(at: tick + 1) < position(at: tick) }
+
+    /// A sine path (14 beats end to end and back), so it slows into each end instead of bouncing off it.
+    private func position(at t: Int) -> CGFloat {
+        if walks {
+            let theta = 2 * Double.pi * Double(t % 14) / 14
+            return CGFloat(0.5 - 0.5 * cos(theta))
         }
         guard s.stepsTotal > 1 else { return 0 }
         let i = min(s.stepsDone, s.stepsTotal - 1)
@@ -518,8 +550,7 @@ struct Hero: View {
 
     private var background: AnyShapeStyle {
         if s.state == .waiting {
-            let glow = tick % 2 == 0 ? 0.0 : 0.1
-            return AnyShapeStyle(LinearGradient(colors: [Pulse.clay.opacity(0.22 + glow), Pulse.clay.opacity(0.07 + glow / 2)],
+            return AnyShapeStyle(LinearGradient(colors: [Pulse.clay.opacity(0.22), Pulse.clay.opacity(0.07)],
                                                 startPoint: .top, endPoint: .bottom))
         }
         return AnyShapeStyle(Color.primary.opacity(0.06))
