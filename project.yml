@@ -46,11 +46,16 @@ targets:
   KeepWorkingWidget:
     type: app-extension
     platform: macOS
-    sources: [Widget, Shared]
+    sources:
+      - Widget
+      - Shared
+      - path: App/Resources/AppIcon.icns
+        buildPhase: resources
     info:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: Keep Working
+        CFBundleIconFile: AppIcon
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
