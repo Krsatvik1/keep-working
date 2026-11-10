@@ -450,17 +450,27 @@ extension Date {
 }
 
 extension SessionSnapshot {
-    static let samples: [SessionSnapshot] = [
-        .init(id: "1", title: "Letterhead", project: "portfolio_2", kind: .code, state: .running, lastActivity: .now,
-              stepsDone: 2, stepsTotal: 4, detail: "Export the signed PDF", url: URL(string: "claude://code/new")!),
-        .init(id: "2", title: "Statuary compliance dashboard", project: "ipl-gatepass", kind: .code, state: .waiting,
-              lastActivity: .now.addingTimeInterval(-600), stepsDone: 3, stepsTotal: 3, detail: "Ship the redesign?",
-              url: URL(string: "claude://code/new")!),
-        .init(id: "3", title: "File comments review", project: "Marichi", kind: .code, state: .done,
-              lastActivity: .now.addingTimeInterval(-4000), stepsDone: 5, stepsTotal: 5, detail: nil,
-              url: URL(string: "claude://code/new")!),
-        .init(id: "4", title: "Inland Power company type", project: "inlandpower", kind: .terminal, state: .idle,
-              lastActivity: .now.addingTimeInterval(-90_000), stepsDone: 0, stepsTotal: 0, detail: nil,
-              url: URL(string: "claude://code/new")!),
-    ]
+    /// Placeholder and render-harness data: obviously sample sessions, one per state.
+    static let samples: [SessionSnapshot] = {
+        func make(_ id: String, _ title: String, _ project: String, _ kind: SessionKind, _ state: SessionState,
+                  ago: TimeInterval, done: Int = 0, total: Int = 0, detail: String? = nil) -> SessionSnapshot {
+            SessionSnapshot(id: id, title: title, project: project, kind: kind, state: state,
+                            lastActivity: Date().addingTimeInterval(-ago), stepsDone: done, stepsTotal: total,
+                            detail: detail, url: URL(string: "claude://code/new")!)
+        }
+        return [
+            make("1", "Sample: onboarding flow", "acme-app", .code, .waiting, ago: 120, done: 5, total: 5,
+                 detail: "Merge the migration now, or wait for review?"),
+            make("2", "Sample: billing refactor", "acme-api", .code, .running, ago: 5, done: 2, total: 4,
+                 detail: "Move invoices to the new ledger"),
+            make("3", "Sample: flaky login test", "acme-app", .code, .running, ago: 60),
+            make("4", "Sample: release notes", "acme-docs", .code, .done, ago: 3100, done: 3, total: 3),
+            make("5", "Sample: search ranking", "acme-api", .code, .idle, ago: 400, done: 2, total: 5),
+            make("6", "Sample: pricing page copy", "acme-site", .code, .idle, ago: 4000),
+            make("7", "Sample: CI cache cleanup", "infra", .terminal, .idle, ago: 9000),
+            make("8", "Sample: research brief", "Cowork", .cowork, .idle, ago: 90_000),
+            make("9", "Sample: design tokens", "acme-site", .code, .idle, ago: 12_000),
+            make("10", "Sample: analytics events", "acme-app", .code, .idle, ago: 20_000),
+        ]
+    }()
 }

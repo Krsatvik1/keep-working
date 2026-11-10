@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WidgetKit
 
@@ -31,82 +32,60 @@ struct PulseProvider: TimelineProvider {
     }
 }
 
-// MARK: - Palette
+// MARK: - Palette (clay is reserved for "needs you")
 
 enum Pulse {
-    static let accent = Color(red: 0.85, green: 0.47, blue: 0.34)   // Claude clay
-    static let done = Color(red: 0.36, green: 0.62, blue: 0.42)
+    static let clay = Color(red: 0.851, green: 0.467, blue: 0.341)
+    static let green = dynamic(light: (0.20, 0.55, 0.32), dark: (0.42, 0.76, 0.53))
+    /// Question text on the clay card.
+    static let clayText = dynamic(light: (0.62, 0.27, 0.15), dark: (0.965, 0.80, 0.745))
+    /// The "Needs you" chip.
+    static let clayLabel = dynamic(light: (0.56, 0.24, 0.12), dark: (0.94, 0.725, 0.647))
 
-    static func color(_ state: SessionState) -> Color {
-        switch state {
-        case .running: return accent
-        case .waiting: return accent
-        case .done: return done
-        case .idle: return .secondary
-        }
+    static func dynamic(light: (Double, Double, Double), dark: (Double, Double, Double)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let c = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1)
+        })
     }
 }
 
-// MARK: - Pieces
-
-/// Clay is reserved for "needs you"; running is an open arc, so the four marks differ by shape in greyscale too.
-struct StatusMark: View {
-    let state: SessionState
-    var body: some View {
-        ZStack {
-            switch state {
-            case .waiting:
-                Circle().fill(Pulse.accent)
-                Circle().stroke(Pulse.accent.opacity(0.25), lineWidth: 2.5).padding(-2)
-            case .running:
-                Circle().trim(from: 0, to: 0.72)
-                    .stroke(Color.primary.opacity(0.8), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            case .done:
-                Image(systemName: "checkmark").font(.system(size: 7.5, weight: .heavy)).foregroundStyle(Pulse.done)
-            case .idle:
-                Circle().fill(Color.secondary.opacity(0.45)).padding(1.5)
-            }
-        }
-        .frame(width: 8, height: 8)
-        .frame(width: 12)
-    }
-}
-
-struct ProgressTrack: View {
-    @Environment(\.colorScheme) private var scheme
-    let value: Double
-    let state: SessionState
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(scheme == .dark ? 0.12 : 0.08))
-                Capsule().fill(state == .waiting ? Pulse.accent : Color.primary.opacity(state == .running ? 0.55 : 0.35))
-                    .frame(width: max(2, geo.size.width * value))
-            }
-        }
-        .frame(height: 2)
-    }
-}
+// MARK: - Derived state
 
 extension SessionSnapshot {
+    /// Not running, list unfinished: it stopped part-way.
+    var isPaused: Bool { state == .idle && stepsTotal > 0 && stepsDone < stepsTotal }
+    var isActive: Bool { state == .running || state == .waiting }
+
+    /// "2/4 · now", "terminal · 1d", "6m"
     var trailing: String {
-        stepsTotal > 0 ? "\(stepsDone)/\(stepsTotal) · \(lastActivity.shortAgo)" : lastActivity.shortAgo
+        if stepsTotal > 0 { return "\(stepsDone)/\(stepsTotal) · \(lastActivity.shortAgo)" }
+        switch kind {
+        case .terminal: return "terminal · \(lastActivity.shortAgo)"
+        case .cowork: return "cowork · \(lastActivity.shortAgo)"
+        case .code: return lastActivity.shortAgo
+        }
     }
 
-    /// A bar only while a list is part-way done; "7/7" in the trailing text already says finished.
-    var partialProgress: Double? {
-        stepsTotal > 0 && stepsDone < stepsTotal ? progress : nil
+    /// The inline "· …" after a list title.
+    var inlineDetail: String? {
+        switch state {
+        case .waiting: return detail
+        case .running: return detail ?? "working"
+        default: return isPaused ? "paused" : nil
+        }
     }
+}
 
-    var subline: String {
-        if state == .waiting, let detail { return "Needs you: \(detail)" }
-        if state == .running, let detail { return detail }
-        if kind == .code { return project.isEmpty ? "Code" : project }
-        return project.isEmpty ? kind.label : "\(project) · \(kind.label)"
+/// Urgent first (needs you, then running), then most recent.
+func ordered(_ sessions: [SessionSnapshot]) -> [SessionSnapshot] {
+    let rank: [SessionState: Int] = [.waiting: 0, .running: 1, .done: 2, .idle: 2]
+    return sessions.sorted {
+        let (a, b) = (rank[$0.state] ?? 3, rank[$1.state] ?? 3)
+        if a != b { return a < b }
+        if $0.state == .running, ($0.stepsTotal > 0) != ($1.stepsTotal > 0) { return $0.stepsTotal > 0 }
+        return $0.lastActivity > $1.lastActivity
     }
-
-    var isQuiet: Bool { state == .idle }
 }
 
 extension SessionKind {
@@ -119,28 +98,226 @@ extension SessionKind {
     }
 }
 
-/// One line per session; a hairline of progress hangs under the title when a task list is part-way done.
-struct CompactRow: View {
+// MARK: - Marks
+
+/// The 16pt mark in front of a list row. Each state differs by shape, not only colour.
+struct RingMark: View {
     let s: SessionSnapshot
+    var size: CGFloat = 16
+
+    var body: some View {
+        let line = size / 8
+        let ring = Circle().inset(by: line)
+        ZStack {
+            switch s.state {
+            case .waiting:
+                Circle().fill(Pulse.clay).padding(size * 0.22)
+                Circle().stroke(Pulse.clay.opacity(0.3), lineWidth: size * 0.18).padding(size * 0.13)
+            case .running where s.stepsTotal > 0:
+                ring.stroke(Color.primary.opacity(0.16), lineWidth: line)
+                ring.trim(from: 0, to: max(0.06, s.progress ?? 0))
+                    .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            case .running:
+                ring.stroke(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: line, dash: [size / 5, size / 5]))
+                ring.trim(from: 0, to: 0.25)
+                    .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            case .done:
+                ring.stroke(Pulse.green, lineWidth: line)
+                Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(Pulse.green)
+            case .idle where s.isPaused:
+                ring.stroke(Color.primary.opacity(0.16), lineWidth: line)
+                ring.trim(from: 0, to: s.progress ?? 0)
+                    .stroke(Color.secondary, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            case .idle where s.kind == .terminal:
+                Image(systemName: "terminal").font(.system(size: size * 0.62)).foregroundStyle(.secondary)
+            case .idle:
+                Circle().fill(Color.secondary).frame(width: size * 0.32, height: size * 0.32)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// One segment per step: done ones solid, the current one half, the rest a faint track.
+struct StepSegments: View {
+    let s: SessionSnapshot
+    var height: CGFloat = 4
+
+    var body: some View {
+        let total = s.stepsTotal
+        Group {
+            if total == 0 {
+                Capsule().fill(Color.primary.opacity(0.1))
+            } else if total > 14 {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.14))
+                        Capsule().fill(fill).frame(width: max(height, g.size.width * (s.progress ?? 0)))
+                    }
+                }
+            } else {
+                HStack(spacing: 3) {
+                    ForEach(0..<max(total, 1), id: \.self) { i in
+                        Capsule().fill(i < s.stepsDone ? fill : (i == s.stepsDone && s.state == .running ? fill.opacity(0.45) : Color.primary.opacity(0.14)))
+                    }
+                }
+            }
+        }
+        .frame(height: height)
+    }
+
+    private var fill: Color { s.state == .idle ? Color.secondary : Color.primary }
+}
+
+// MARK: - Hero (the most urgent session)
+
+struct Hero: View {
+    @Environment(\.widgetRenderingMode) private var mode
+    let s: SessionSnapshot
+    var compact = false
+    /// The small widget: no inner card, the widget background is the card.
+    var fullBleed = false
+    var othersWorking = 0
+
     var body: some View {
         OpenLink(url: s.url) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                StatusMark(state: s.state)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3.5 }
+            VStack(alignment: .leading, spacing: compact ? 5 : 9) {
+                chip
                 Text(s.title)
-                    .font(.system(size: 12, weight: s.isQuiet ? .regular : .medium))
-                    .foregroundStyle(s.isQuiet ? .secondary : .primary)
-                    .lineLimit(1)
+                    .font(.system(size: fullBleed ? 14 : compact ? 15 : 19, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let line = body2 {
+                    Text(line)
+                        .font(.system(size: fullBleed ? 11.5 : compact ? 12 : 14))
+                        .foregroundStyle(s.state == .waiting
+                                         ? (mode == .fullColor ? AnyShapeStyle(Pulse.clayText) : AnyShapeStyle(.primary))
+                                         : AnyShapeStyle(.secondary))
+                        .lineLimit(compact ? 2 : 3)
+                        .layoutPriority(1)
+                }
+                Spacer(minLength: 0)
+                if s.stepsTotal > 0 && !(fullBleed && s.state == .waiting) {
+                    StepSegments(s: s)
+                }
+                HStack {
+                    if !compact { Text(s.project.isEmpty ? s.kind.label : s.project); Spacer() }
+                    Text(compact ? compactFooter : footer).contentTransition(.numericText())
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            .padding(fullBleed ? 0 : compact ? 12 : 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(fullBleed ? AnyShapeStyle(Color.clear) : background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                // Monochrome desktop mode drops the clay; keep "needs you" visible with an outline.
+                if s.state == .waiting && mode != .fullColor && !fullBleed {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.5), lineWidth: 1.5)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private var chip: some View {
+        HStack(spacing: 7) {
+            if s.state == .waiting {
+                Circle().fill(Pulse.clay).frame(width: 8, height: 8)
+                    .overlay(Circle().stroke(Pulse.clay.opacity(0.3), lineWidth: 3).padding(-3))
+            } else {
+                RingMark(s: s, size: 12)
+            }
+            Text(fullBleed ? chipLabel : "\(chipLabel) · \(s.lastActivity.shortAgo)")
+        }
+        .font(.system(size: 11.5, weight: .semibold))
+        .foregroundStyle(chipColor)
+    }
+
+    private var chipLabel: String {
+        switch s.state {
+        case .waiting: return "Needs you"
+        case .running: return "Working"
+        case .done: return "Finished"
+        case .idle: return s.isPaused ? "Paused" : "Last active"
+        }
+    }
+
+    private var chipColor: AnyShapeStyle {
+        switch s.state {
+        case .waiting: return AnyShapeStyle(Pulse.clayLabel)
+        case .done: return AnyShapeStyle(Pulse.green)
+        default: return AnyShapeStyle(.secondary)
+        }
+    }
+
+    private var body2: String? {
+        switch s.state {
+        case .waiting, .running: return s.detail
+        default: return s.isPaused ? s.detail ?? "Stopped before finishing its list" : nil
+        }
+    }
+
+    private var compactFooter: String {
+        if fullBleed && s.state == .waiting && othersWorking > 0 { return "+\(othersWorking) working" }
+        return s.stepsTotal > 0 ? "\(s.stepsDone) of \(s.stepsTotal) steps" : (s.project.isEmpty ? s.kind.label : s.project)
+    }
+
+    private var footer: String {
+        let steps = s.stepsTotal > 0 ? "\(s.stepsDone) of \(s.stepsTotal) steps" : nil
+        if s.state == .waiting { return [steps, "answer in Claude ›"].compactMap { $0 }.joined(separator: " · ") }
+        return steps ?? "open in Claude ›"
+    }
+
+    private var background: AnyShapeStyle {
+        if s.state == .waiting {
+            return AnyShapeStyle(LinearGradient(colors: [Pulse.clay.opacity(0.24), Pulse.clay.opacity(0.08)],
+                                                startPoint: .top, endPoint: .bottom))
+        }
+        return AnyShapeStyle(Color.primary.opacity(0.06))
+    }
+}
+
+// MARK: - List row
+
+struct ListRow: View {
+    @Environment(\.widgetRenderingMode) private var mode
+    let s: SessionSnapshot
+
+    private func titleText(withDetail: Bool) -> Text {
+        let title = Text(s.title).fontWeight(s.isActive ? .semibold : .regular)
+            .foregroundColor(s.isActive || s.state == .done ? .primary : .secondary)
+        guard withDetail, let d = s.inlineDetail else { return title }
+        return title + Text(" · \(d)").foregroundColor(s.state == .waiting && mode == .fullColor ? Pulse.clayText : .secondary)
+    }
+    var body: some View {
+        OpenLink(url: s.url) {
+            HStack(spacing: 9) {
+                RingMark(s: s)
+                ViewThatFits(in: .horizontal) {
+                    titleText(withDetail: true).fixedSize()
+                    titleText(withDetail: false)
+                }
+                .font(.system(size: 12.5))
+                .lineLimit(1)
                 Spacer(minLength: 6)
-                Text(s.trailing).contentTransition(.numericText())
-                    .font(.system(size: 10.5))
+                Text(s.trailing)
+                    .font(.system(size: 11))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
                     .layoutPriority(1)
             }
-            .overlay(alignment: .bottomLeading) {
-                if let p = s.partialProgress {
-                    ProgressTrack(value: p, state: s.state).padding(.leading, 18).offset(y: 6)
+            .padding(.horizontal, 6)
+            .frame(maxHeight: 29)
+            .background(s.state == .waiting ? Pulse.clay.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                if s.state == .waiting && mode != .fullColor {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.5), lineWidth: 1.5)
                 }
             }
             .frame(maxHeight: .infinity)
@@ -149,62 +326,53 @@ struct CompactRow: View {
     }
 }
 
-/// Two lines per session: title, then the current step / the question / the project.
-struct DetailRow: View {
-    let s: SessionSnapshot
+struct ListColumn: View {
+    let sessions: [SessionSnapshot]   // excludes the hero
+    let all: [SessionSnapshot]
+    let maxRows: Int
+
     var body: some View {
-        OpenLink(url: s.url) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                StatusMark(state: s.state)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3.5 }
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(s.title)
-                            .font(.system(size: 12.5, weight: s.isQuiet ? .regular : .medium))
-                            .foregroundStyle(s.isQuiet ? .secondary : .primary)
-                            .lineLimit(1)
-                        Spacer(minLength: 6)
-                        Text(s.trailing).contentTransition(.numericText()).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    Text(s.subline)
-                        .font(.system(size: 11))
-                        .foregroundStyle(s.state == .waiting ? AnyShapeStyle(Pulse.accent) : AnyShapeStyle(.secondary))
-                        .lineLimit(1)
-                    if let p = s.partialProgress { ProgressTrack(value: p, state: s.state).padding(.top, 2) }
-                }
+        let rows = Array(sessions.prefix(maxRows))
+        let split = rows.firstIndex { !$0.isActive } ?? rows.count
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Claude").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Summary(all: all)
             }
-            .frame(height: 54, alignment: .top)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 6)
+            .padding(.bottom, 4)
+            ForEach(Array(rows.enumerated()), id: \.element.id) { i, s in
+                if i == split && split > 0 && split < rows.count {
+                    Divider().opacity(0.5).padding(.horizontal, 6).padding(.vertical, 3)
+                }
+                ListRow(s: s)
+            }
+            if rows.count < maxRows { Spacer(minLength: 0) }
         }
     }
 }
 
-struct Header: View {
-    let sessions: [SessionSnapshot]
+struct Summary: View {
+    let all: [SessionSnapshot]
     var body: some View {
-        let running = sessions.filter { $0.state == .running }.count
-        let waiting = sessions.filter { $0.state == .waiting }.count
-        HStack(alignment: .firstTextBaseline) {
-            Text("Claude sessions").font(.system(size: 13, weight: .semibold))
-            Spacer()
-            summary(running: running, waiting: waiting).font(.system(size: 11)).contentTransition(.numericText())
-        }
-    }
-
-    private func summary(running: Int, waiting: Int) -> Text {
-        let need = waiting == 0 ? nil : Text(waiting == 1 ? "1 needs you" : "\(waiting) need you").foregroundColor(Pulse.accent)
-        let run = running == 0 ? nil : Text("\(running) running").foregroundColor(.secondary)
-        switch (need, run) {
-        case let (n?, r?): return n + Text(" · ").foregroundColor(.secondary) + r
-        case let (n?, nil): return n
-        case let (nil, r?): return r
-        default: return Text("all quiet").foregroundColor(.secondary)
-        }
+        let waiting = all.filter { $0.state == .waiting }.count
+        let running = all.filter { $0.state == .running }.count
+        let need = waiting == 0 ? nil : Text(waiting == 1 ? "1 needs you" : "\(waiting) need you").foregroundColor(Pulse.clayLabel)
+        let work = running == 0 ? nil : Text("\(running) working").foregroundColor(.secondary)
+        let text: Text = {
+            switch (need, work) {
+            case let (n?, w?): return n + Text(" · ").foregroundColor(.secondary) + w
+            case let (n?, nil): return n
+            case let (nil, w?): return w
+            default: return Text("all quiet").foregroundColor(.secondary)
+            }
+        }()
+        text.font(.system(size: 11)).contentTransition(.numericText())
     }
 }
 
-/// A `Link` in the widget; plain content in the render harness (ImageRenderer can't draw links).
+/// A `Link` in the widget (routed through the app, which opens it in Claude); plain content in the render harness.
 struct OpenLink<Content: View>: View {
     let url: URL
     @ViewBuilder let content: Content
@@ -224,79 +392,77 @@ struct PulseWidgetView: View {
     let entry: PulseEntry
     var forcedFamily: WidgetFamily? = nil   // for the render harness
 
-    /// The 10 most recent sessions, with the ones that need you first and running ones next.
-    private var ordered: [SessionSnapshot] {
-        let rank: [SessionState: Int] = [.waiting: 0, .running: 1, .done: 2, .idle: 2]
-        return entry.sessions.sorted {
-            let (a, b) = (rank[$0.state] ?? 3, rank[$1.state] ?? 3)
-            return a != b ? a < b : $0.lastActivity > $1.lastActivity
-        }
+    private var smallWaiting: Bool {
+        (forcedFamily ?? family) == .systemSmall && ordered(entry.sessions).first?.state == .waiting
     }
 
     var body: some View {
         Group {
             if entry.sessions.isEmpty {
-                VStack(spacing: 6) {
-                    Text("No sessions yet").font(.system(size: 13, weight: .medium))
-                    if let e = entry.error { Text(e).font(.system(size: 11)).foregroundStyle(.secondary) }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptyState(error: entry.error)
             } else {
+                let list = ordered(entry.sessions)
                 switch forcedFamily ?? family {
-                case .systemSmall: small
-                case .systemMedium: medium
-                case .systemExtraLarge: extraLarge
-                default: large
+                case .systemSmall:
+                    Hero(s: list[0], compact: true, fullBleed: true,
+                         othersWorking: list.dropFirst().filter { $0.state == .running }.count)
+                case .systemMedium: medium(list)
+                case .systemLarge: large(list)
+                default: extraLarge(list)
                 }
             }
         }
-        .containerBackground(.fill.tertiary, for: .widget)
-    }
-
-    private var small: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Header(sessions: entry.sessions)
-            Spacer(minLength: 4)
-            ForEach(ordered.prefix(4)) { s in
-                HStack(spacing: 5) {
-                    StatusMark(state: s.state)
-                    Text(s.title).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
-                }
-                .frame(maxHeight: .infinity)
+        .containerBackground(for: .widget) {
+            if smallWaiting {
+                LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)
+                    .background(Color(nsColor: .windowBackgroundColor))
+            } else {
+                Color(nsColor: .windowBackgroundColor)
             }
         }
-        .widgetURL(ordered.first.map { PulseLink.wrap($0.url) })
     }
 
-    private var medium: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Header(sessions: entry.sessions)
-            ForEach(ordered.prefix(4)) { CompactRow(s: $0) }
+    private func extraLarge(_ list: [SessionSnapshot]) -> some View {
+        HStack(spacing: 12) {
+            Hero(s: list[0]).frame(width: 290)
+            ListColumn(sessions: Array(list.dropFirst()), all: Array(list.dropFirst()), maxRows: 9)
+                .padding(.top, 4)
         }
+        .padding(-4)
     }
 
-    private var large: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Header(sessions: entry.sessions).padding(.bottom, 8)
-            ForEach(ordered.prefix(10)) { CompactRow(s: $0) }
-            if entry.sessions.count < 10 { Spacer(minLength: 0) }
+    private func large(_ list: [SessionSnapshot]) -> some View {
+        VStack(spacing: 10) {
+            Hero(s: list[0], compact: true).frame(height: 138)
+            ListColumn(sessions: Array(list.dropFirst()), all: Array(list.dropFirst()), maxRows: 6)
         }
+        .padding(-4)
     }
 
-    private var extraLarge: some View {
-        let list = Array(ordered.prefix(10))
-        let left = Array(list.prefix(5)), right = Array(list.dropFirst(5))
-        return VStack(alignment: .leading, spacing: 6) {
-            Header(sessions: entry.sessions)
-            HStack(alignment: .top, spacing: 18) {
-                VStack(spacing: 0) { ForEach(left) { DetailRow(s: $0) } }.frame(maxWidth: .infinity, alignment: .top)
-                VStack(spacing: 0) {
-                    ForEach(right) { DetailRow(s: $0) }
-                    if right.count < 5 { Spacer(minLength: 0) }
-                }
-                .frame(maxWidth: .infinity, alignment: .top)
+    private func medium(_ list: [SessionSnapshot]) -> some View {
+        ListColumn(sessions: list, all: list, maxRows: 3).padding(-2)
+    }
+}
+
+struct EmptyState: View {
+    let error: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(error == nil ? "No Claude sessions yet" : "Can't see your sessions")
+                .font(.system(size: 15, weight: .semibold))
+            Text(error == nil ? "Start one and it shows up here with its progress."
+                              : "Session Pulse couldn't read Claude's session folder. Open it to check.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            OpenLink(url: URL(string: error == nil ? "claude://code/new" : "claude://code/new")!) {
+                Text(error == nil ? "New session in Claude" : "Open Claude")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 11).padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
+            .padding(.top, 4)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 
@@ -308,7 +474,7 @@ struct SessionPulseWidget: Widget {
             PulseWidgetView(entry: entry)
         }
         .configurationDisplayName("Claude sessions")
-        .description("Your 10 most recent Claude Code and Cowork sessions, with task progress. Click one to open it.")
+        .description("Your 10 most recent Claude sessions. The one that needs you comes first. Click to open it.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
