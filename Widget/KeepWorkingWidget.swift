@@ -706,15 +706,16 @@ struct Summary: View {
         let running = all.filter { $0.state == .running }.count
         let need = waiting == 0 ? nil : Text(waiting == 1 ? "1 needs you" : "\(waiting) need you").foregroundColor(Pulse.clayLabel)
         let work = running == 0 ? nil : Text("\(running) working").foregroundColor(.secondary)
-        let text: Text = {
+        // Nothing to say when nothing is going on: the header stays empty rather than saying so.
+        let text: Text? = {
             switch (need, work) {
             case let (n?, w?): return n + Text(" · ").foregroundColor(.secondary) + w
             case let (n?, nil): return n
             case let (nil, w?): return w
-            default: return Text("all quiet").foregroundColor(.secondary)
+            default: return nil
             }
         }()
-        text.font(.system(size: 11)).contentTransition(.numericText())
+        if let text { text.font(.system(size: 11)).contentTransition(.numericText()) }
     }
 }
 
