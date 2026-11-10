@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 APP="build/Pulse Preview.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library -D RENDER_HARNESS \
-  Shared/SessionStore.swift Widget/SessionPulseWidget.swift Tools/Preview.swift \
+  Shared/SessionStore.swift Widget/SessionPulseWidget.swift Widget/ClawdMotion.swift \
+  Tools/Preview.swift \
   -o "$APP/Contents/MacOS/Pulse Preview"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -24,7 +25,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 cp /Applications/Claude.app/Contents/Resources/electron.icns "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null || true
 codesign -s - --force "$APP" >/dev/null 2>&1 || true
-if [[ "$1" == "--capture" || "$1" == "--frames" ]]; then
+if [[ "$1" == "--capture" || "$1" == "--frames" || "$1" == "--sheets" ]]; then
   "$APP/Contents/MacOS/Pulse Preview" "$@"
 else
   open "$APP"
