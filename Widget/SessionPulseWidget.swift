@@ -37,7 +37,7 @@ struct PulseProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<PulseEntry>) -> Void) {
         let base = load()
         let beat = Beat.seconds
-        let count = 600                       // 20 minutes of frames, so motion outlasts a delayed reload
+        let count = 20                        // 40 s of 2 s beats. Each entry carries every flip-book frame, and macOS rejects a timeline archive much past ~5–10 MB; the app reloads on every session change anyway
         let start = (base.date.timeIntervalSince1970 / beat).rounded(.up) * beat
         let entries = (0..<count).map { i -> PulseEntry in
             let t = start + Double(i) * beat
@@ -393,6 +393,12 @@ struct Clawd: View {
 
 // MARK: - Hero (the most urgent session)
 
+/// Where the hero's character stands, measured inside the link and drawn outside it.
+struct StageKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
+}
+
 struct Hero: View {
     @Environment(\.widgetRenderingMode) private var mode
     @Environment(\.pulseTick) private var tick
@@ -405,6 +411,28 @@ struct Hero: View {
     static let heroPx: CGFloat = 4.5
 
     var body: some View {
+        link.overlayPreferenceValue(StageKey.self) { stage in
+            GeometryReader { g in
+                if let stage { character(in: g[stage]) }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder private func character(in r: CGRect) -> some View {
+        if compact {
+            ClawdLoop(mood: s.mood, px: Self.smallPx).offset(x: r.minX, y: r.minY)
+        } else {
+            let w = ClawdSprite.size(px: Self.heroPx).width
+            ClawdLoop(mood: s.mood, px: Self.heroPx, walking: walkingNow)
+                .scaleEffect(x: facingLeft ? -1 : 1)
+                .animation(Beat.morph, value: facingLeft)
+                .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
+                .animation(Beat.linear, value: standX)
+        }
+    }
+
+    private var link: some View {
         OpenLink(url: s.url) {
             VStack(alignment: .leading, spacing: compact ? 5 : 9) {
                 chip
@@ -426,15 +454,11 @@ struct Hero: View {
                     if !compact {
                         // Standing on the steps bar, over the step it's on.
                         VStack(alignment: .leading, spacing: 1) {
-                            GeometryReader { g in
-                                let w = ClawdSprite.size(px: Self.heroPx).width
-                                ClawdLoop(mood: s.mood, px: Self.heroPx, walking: walkingNow)
-                                    .scaleEffect(x: facingLeft ? -1 : 1)
-                                    .animation(Beat.morph, value: facingLeft)
-                                    .offset(x: max(0, g.size.width - w) * standX)
-                                    .animation(Beat.linear, value: standX)
-                            }
-                            .frame(height: ClawdSprite.size(px: Self.heroPx).height)
+                            // Only a marked-out stage here: the character is drawn over the link, not inside
+                            // it, because its spinning flip-book masks would wreck the link's tap area.
+                            Color.clear
+                                .frame(height: ClawdSprite.size(px: Self.heroPx).height)
+                                .anchorPreference(key: StageKey.self, value: .bounds) { $0 }
                             if s.stepsTotal > 0 { StepSegments(s: s) }
                         }
                     } else if s.stepsTotal > 0 && !(fullBleed && s.state == .waiting) {
@@ -452,7 +476,11 @@ struct Hero: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay(alignment: .bottomTrailing) {
-                if compact { ClawdLoop(mood: s.mood, px: Self.smallPx) }
+                if compact {
+                    Color.clear.frame(width: ClawdSprite.size(px: Self.smallPx).width,
+                                      height: ClawdSprite.size(px: Self.smallPx).height)
+                        .anchorPreference(key: StageKey.self, value: .bounds) { $0 }
+                }
             }
             .padding(fullBleed ? 0 : compact ? 12 : 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

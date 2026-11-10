@@ -319,12 +319,15 @@ struct ClawdSprite: View {
         .accessibilityHidden(true)
     }
 
+    /// Solid ink when `toned` is off, so stacked flip-book frames never add up to a brighter patch; the
+    /// flip-book applies the mood's shade once over the whole stack instead.
+    var toned = true
     private var color: AnyShapeStyle {
-        switch mood {
-        case .waiting: return AnyShapeStyle(Pulse.clay)
-        case .working, .done: return AnyShapeStyle(Color.primary.opacity(0.85))
-        case .resting, .sleeping: return AnyShapeStyle(Color.secondary.opacity(0.8))
-        }
+        let ink: Color = mood == .waiting ? Pulse.clay : .primary
+        return AnyShapeStyle(ink.opacity(toned ? ClawdSprite.tone(mood) : 1))
+    }
+    static func tone(_ m: Mood) -> Double {
+        switch m { case .waiting: return 1; case .working, .done: return 0.85; case .resting, .sleeping: return 0.45 }
     }
 }
 
@@ -347,9 +350,11 @@ struct ClawdLoop: View {
         }
         #else
         FlipBook(period: ClawdMotion.loop(mood), fps: fps) { t in
-            ClawdSprite(mood: mood, t: t, px: px, walking: walking)
+            ClawdSprite(mood: mood, t: t, px: px, walking: walking, toned: false)
         }
         .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
+        .compositingGroup()
+        .opacity(ClawdSprite.tone(mood))
         #endif
     }
 }
