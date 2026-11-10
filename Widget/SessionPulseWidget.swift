@@ -35,8 +35,11 @@ struct PulseProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PulseEntry>) -> Void) {
-        let base = load()
+        var base = load()
         let beat = Beat.seconds
+        // The first entry shows now, so it carries now's beat. (It used to carry tick 0, and since the app
+        // reloads every few seconds while a session works, the walker kept snapping back to the start.)
+        base.tick = Int((base.date.timeIntervalSince1970 / beat).rounded(.down))
         let count = 20                        // 40 s of 2 s beats. Each entry carries every flip-book frame, and macOS rejects a timeline archive much past ~5–10 MB; the app reloads on every session change anyway
         let start = (base.date.timeIntervalSince1970 / beat).rounded(.up) * beat
         let entries = (0..<count).map { i -> PulseEntry in
