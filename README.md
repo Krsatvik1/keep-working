@@ -46,13 +46,12 @@ would mean reading your login cookie.
 
 ```bash
 brew install xcodegen
-xcodegen generate
-xcodebuild -project SessionPulse.xcodeproj -scheme SessionPulse -configuration Release -derivedDataPath build build
-rm -rf ~/Applications/Session\ Pulse.app && cp -R "build/Build/Products/Release/Session Pulse.app" ~/Applications/
-open ~/Applications/Session\ Pulse.app
+./install.sh   # generates, builds, installs to /Applications, keeps one registered copy
 ```
 
 Then right-click the desktop → Edit Widgets → search "Claude sessions" → drag the large size out.
 
-Signed ad hoc (no Apple developer team needed). The app path in the formats above may break if the Claude
+Signed with the free Personal Team (MQ663L65WN): Xcode → Settings → Accounts must have the Apple ID.
+Keep exactly one registered copy of the app: a second copy (e.g. in the build folder) makes the system
+widget service flip between them. The file formats above may break if the Claude
 desktop app changes how it stores sessions; `SessionStore.swift` is the one place to fix.
