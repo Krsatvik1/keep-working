@@ -10,11 +10,18 @@ xcodegen generate -q
 xcodebuild -project SessionPulse.xcodeproj -scheme SessionPulse -configuration Release \
   -derivedDataPath build -allowProvisioningUpdates build | grep -E "error|BUILD" || true
 pkill -x "Session Pulse" || true
-true
 rsync -a --delete "$BUILT/" "$DEST/"
-pluginkit -r "$BUILT/Contents/PlugIns/SessionPulseWidget.appex" 2>/dev/null || true
+# xcodebuild also leaves a loose copy of the extension next to the app; unregister and delete both.
+LOOSE="build/Build/Products/Release/SessionPulseWidget.appex"
+for p in "$BUILT/Contents/PlugIns/SessionPulseWidget.appex" "$LOOSE"; do
+  pluginkit -r "$p" 2>/dev/null || true
+  $LS -u "$p" 2>/dev/null || true
+done
 $LS -u "$BUILT" 2>/dev/null || true
-rm -rf "$BUILT"
+rm -rf "$BUILT" "$LOOSE" build/Build/Products/Release/*.dSYM
 $LS -f "$DEST"
+# The running widget process keeps the old code in memory; stop it so the system relaunches the new binary.
+pkill -f "SessionPulseWidget.appex/Contents/MacOS/SessionPulseWidget" || true
+killall chronod 2>/dev/null || true
 open "$DEST"
 pluginkit -m -v -i xyz.krsatvik.SessionPulse.Widget
