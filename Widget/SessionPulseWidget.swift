@@ -283,7 +283,7 @@ struct Clawd: View {
         .frame(width: CGFloat(rows.first?.count ?? 0) * unit, height: CGFloat(rows.count) * unit)
     }
 
-    private static let question = ["111", "001", "011", "000", "010"]
+    private static let question = ["0110", "1001", "0001", "0010", "0000", "0010"]
     private static let zed = ["1111", "0010", "0100", "1111"]
 
     private struct Part { var x: CGFloat; var y: CGFloat; var w: CGFloat; var h: CGFloat }
@@ -298,7 +298,7 @@ struct Clawd: View {
         var extraR = Part(x: 16, y: 2, w: 0, h: 0)
         var hand = Part(x: 16, y: 2, w: 0, h: 0)
         var cursor = Part(x: 18, y: 1, w: 0, h: 2)
-        var legs: CGFloat = 1
+        var legs: [CGFloat] = [1, 1, 1, 1]
         var eyes: [Part] = Pose.openEyes(dx: 0, y: 1, h: 1)
         var marks: [Mark] = []
 
@@ -313,7 +313,7 @@ struct Clawd: View {
 
         var solid: [Part] {
             [Part(x: 3, y: 0, w: 12, h: 4), armL, armR, extraL, extraR, hand, cursor] +
-            [4.0, 6, 11, 13].map { Part(x: $0, y: 4, w: 1, h: legs) }
+            zip([4.0, 6, 11, 13], legs).map { Part(x: $0, y: 4, w: 1, h: $1) }
         }
     }
 
@@ -327,13 +327,15 @@ struct Clawd: View {
             p.armL = Part(x: 1, y: odd ? 1.6 : 2, w: 2, h: 1)
             p.armR = Part(x: 15, y: odd ? 2 : 1.6, w: 2, h: 1)
             p.cursor = Part(x: 18, y: 1, w: odd ? 0 : 1, h: 2)
+            p.legs = odd ? [1, 0.4, 1, 0.4] : [0.4, 1, 0.4, 1]
         case .waiting:
             // Waving for attention: arm out, forearm up, the hand rocking side to side under a "?".
             p.armR = Part(x: 15, y: 2, w: 2, h: 1)
             p.extraR = Part(x: 16, y: -0.5, w: 1, h: 2.5)
             p.hand = Part(x: odd ? 16.5 : 15.5, y: -1.5, w: 2, h: 1)
             p.eyes = Pose.openEyes(dx: 0.5, y: 0.7, h: 1)
-            p.marks = [Mark(bits: Self.question, x: odd ? 17.2 : 16.2, y: -3.9)]
+            p.legs = odd ? [1, 0.4, 1, 0.4] : [0.4, 1, 0.4, 1]
+            p.marks = [Mark(bits: Self.question, x: odd ? 16.9 : 15.9, y: -4, scale: 0.55)]
         case .done:
             // Ta-da: arms flung wide, ^ ^ eyes, a hop.
             p.lift = odd ? 0 : -0.8
@@ -344,7 +346,7 @@ struct Clawd: View {
             p.eyes = Pose.happyEyes
         case .resting:
             // Paused: sitting, legs folded, eyes shifting and a blink now and then.
-            p.lift = 1; p.legs = 0
+            p.lift = 1; p.legs = [0, 0, 0, 0]
             p.armL = Part(x: 1, y: 2.5, w: 2, h: 1); p.armR = Part(x: 15, y: 2.5, w: 2, h: 1)
             switch t % 6 {
             case 1: p.eyes = Pose.openEyes(dx: 1, y: 1, h: 1)
@@ -354,7 +356,7 @@ struct Clawd: View {
             }
         case .sleeping:
             // Asleep: slow breathing, z's drifting up, and once in a while one eye peeks open.
-            p.lift = odd ? 0.8 : 1.1; p.legs = 0
+            p.lift = odd ? 0.8 : 1.1; p.legs = [0, 0, 0, 0]
             p.armL = Part(x: 2, y: 2.8, w: 1, h: 1); p.armR = Part(x: 15, y: 2.8, w: 1, h: 1)
             p.eyes = Pose.openEyes(dx: 0, y: 1.6, h: 0.3)
             if t % 8 == 5 { p.eyes[1] = Part(x: 12, y: 1, w: 1, h: 0.9) }
@@ -403,7 +405,7 @@ struct Hero: View {
                                 let w = Clawd.size(px: 5).width
                                 Clawd(mood: s.mood, px: 5)
                                     .offset(x: max(0, g.size.width - w) * standX)
-                                    .animation(.spring(response: 0.8, dampingFraction: 0.8), value: standX)
+                                    .animation(.easeInOut(duration: 1.9), value: standX)
                             }
                             .frame(height: Clawd.size(px: 5).height)
                             if s.stepsTotal > 0 { StepSegments(s: s) }
@@ -421,6 +423,7 @@ struct Hero: View {
                 }
                 .padding(.trailing, compact ? Clawd.size(px: Self.smallPx).width + 6 : 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay(alignment: .bottomTrailing) {
                 if compact { Clawd(mood: s.mood, px: Self.smallPx) }
             }
@@ -452,8 +455,13 @@ struct Hero: View {
         .foregroundStyle(chipColor)
     }
 
-    /// Where the character stands along the bar: over the current step, or at the start.
+    /// Where the character stands along the bar, 0…1. While working or waiting it paces slowly from end
+    /// to end, one step a tick; otherwise it stays over the current step.
     private var standX: CGFloat {
+        if s.mood == .working || s.mood == .waiting {
+            let period = 12, phase = tick % period, half = period / 2
+            return CGFloat(phase <= half ? phase : period - phase) / CGFloat(half)
+        }
         guard s.stepsTotal > 1 else { return 0 }
         let i = min(s.stepsDone, s.stepsTotal - 1)
         return CGFloat(i) / CGFloat(s.stepsTotal - 1)
@@ -543,7 +551,7 @@ struct ListRow: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.5), lineWidth: 1.5)
                 }
             }
-            .frame(maxHeight: .infinity)
+            .frame(minHeight: 20, maxHeight: 32)
             .contentShape(Rectangle())
             .animation(.easeInOut(duration: 1.2), value: tick)
         }
@@ -623,7 +631,7 @@ struct PulseWidgetView: View {
     var body: some View {
         Group {
             if entry.sessions.isEmpty {
-                EmptyState(error: entry.error)
+                EmptyState(error: entry.error, showsCharacter: (forcedFamily ?? family) != .systemSmall)
             } else {
                 let list = ordered(entry.sessions)
                 switch forcedFamily ?? family {
@@ -671,6 +679,7 @@ struct PulseWidgetView: View {
 
 struct EmptyState: View {
     let error: String?
+    var showsCharacter = true
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(error == nil ? "No Claude sessions yet" : "Can't see your sessions")
@@ -688,6 +697,10 @@ struct EmptyState: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .overlay(alignment: .bottomTrailing) {
+            // Nothing to do: asleep. Can't read: sitting up, blinking. (No room for it in the small size.)
+            if showsCharacter { Clawd(mood: error == nil ? .sleeping : .resting, px: 3) }
+        }
     }
 }
 

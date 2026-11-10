@@ -55,3 +55,11 @@ Signed with the free Personal Team (MQ663L65WN): Xcode → Settings → Accounts
 Keep exactly one registered copy of the app: a second copy (e.g. in the build folder) makes the system
 widget service flip between them. The file formats above may break if the Claude
 desktop app changes how it stores sessions; `SessionStore.swift` is the one place to fix.
+
+## Preview every state
+
+`Tools/preview.sh` builds **Pulse Preview**, a small app that draws the widget's own views in a window:
+all four sizes at once, with arrows (or ← →) to step through every state (needs you, working with and
+without a list, finished, paused, idle, terminal, no sessions, can't read, and your live sessions).
+The animation tick runs live; space pauses it, D switches light/dark.
+`Tools/preview.sh --capture <dir>` saves every state at two ticks, light and dark, as PNGs of the window.
