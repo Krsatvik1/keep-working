@@ -10,6 +10,7 @@
 import AppKit
 import SwiftUI
 import WidgetKit
+import UniformTypeIdentifiers
 
 // MARK: - Script
 
@@ -67,7 +68,11 @@ enum Script {
         case 12, 13:
             star = session("star", "Pricing page redesign", "acme-site", .code, .done, ago: 3, done: 5, total: 5)
             image = Assets.mock
-        default: star = working(3); image = Assets.mock
+        case 14, 15: star = working(3); image = Assets.mock
+        default:
+            star = session("star", "Pricing page redesign", "acme-site", .code, .waiting, ago: 4, done: 5, total: 5,
+                           detail: question)
+            image = Assets.mock
         }
         let loginState: SessionState = (3...8).contains(n) || n >= 14 ? .running : n >= 9 ? .done : .idle
         let others = [
@@ -140,9 +145,11 @@ enum Script {
         .scene(.answer, 2.4),                              // pick an answer
         .widget(23.6, 26.6, enter: true, exit: true),      // done; click
         .scene(.response, 4.2),                            // what it made
-        .widget(28.16, 36.0, enter: true, exit: false),    // sizes, end card
+        .widget(28.16, endAt + 4.4, enter: true, exit: false),   // the desktop, then the download card
     ]
     static let prompt = "Redesign the pricing page"
+    /// When the desktop shot gives way to the download card, on the widget's clock.
+    static let endAt = 34.0
 }
 
 /// The three plan cards of the made-up pricing page: behind the hero as the snapped image, and in the chat.
@@ -190,8 +197,7 @@ enum Assets {
     }()
 
     static let icon: NSImage? = NSImage(contentsOfFile: "App/Resources/AppIcon-1024.png")
-    /// A capture of the desktop the sizes shot plays on. Personal, so it stays in the ignored build folder.
-    static let desktop: NSImage? = NSImage(contentsOfFile: "build/film-assets/desktop.jpg")
+
 }
 
 // MARK: - Frame
@@ -220,7 +226,7 @@ struct FilmFrame: View {
             let inK = enter.map { ramp($0, 0, 0.32) } ?? 1, outK = exit.map { ramp($0, 0, 0.28) } ?? 1
             Group {
                 if t < 28.0 { story }
-                if t >= 28 && t < 32.1 { sizes }
+                if t >= 28 && t < Script.endAt + 0.5 { sizes }
             }
             .scaleEffect(1 + 0.22 * (1 - inK) + 0.22 * (1 - outK))
             .opacity(inK * outK)
@@ -232,7 +238,7 @@ struct FilmFrame: View {
             caption.opacity(exit.map { ramp($0, 0, 0.2) } ?? 1)
             // Coming back from the chat, the click that took us there is over.
             if enter == nil { cursor.opacity(exit.map { ramp($0, 0, 0.15) } ?? 1) } else if (enter ?? 0) > 1.0 { cursor.opacity(exit.map { ramp($0, 0, 0.15) } ?? 1) }
-            if t >= 31.6 { endCard.opacity(ramp(t, 31.6, 32.1)) }
+            if t >= Script.endAt { endCard.opacity(ramp(t, Script.endAt, Script.endAt + 0.5)) }
         }
         .frame(width: Script.size.width, height: Script.size.height)
         .clipped()
@@ -268,26 +274,28 @@ struct FilmFrame: View {
     /// An entry change, as the desktop shows it. A new state swaps cleanly: the old content is out in five
     /// frames and the new in over the next five, so two layouts never show at once. A new step only changes a
     /// line of text, so the two entries add up to one image and just that line dissolves.
-    private func widget(_ family: WidgetFamily, _ size: CGSize) -> some View {
+    @ViewBuilder private func content(_ family: WidgetFamily, _ size: CGSize) -> some View {
         let now = Script.moment(tick), before = Script.moment(tick - 1)
         let into = t - Double(tick) * Beat.seconds
         let changed = now.signature != before.signature
         let swap = now.state != before.state
-        return chrome(size) {
-            if !changed || into >= (swap ? 0.17 : 0.35) {
-                tile(now, family, size)
-            } else if swap {
-                if into < 0.085 { tile(before, family, size).opacity(1 - into / 0.085) }
-                else { tile(now, family, size).opacity((into - 0.085) / 0.085) }
-            } else {
-                let k = ease(into / 0.35)
-                ZStack {
-                    tile(before, family, size).opacity(1 - k)
-                    tile(now, family, size).opacity(k).blendMode(.plusLighter)
-                }
-                .compositingGroup()
+        if !changed || into >= (swap ? 0.17 : 0.35) {
+            tile(now, family, size)
+        } else if swap {
+            if into < 0.085 { tile(before, family, size).opacity(1 - into / 0.085) }
+            else { tile(now, family, size).opacity((into - 0.085) / 0.085) }
+        } else {
+            let k = ease(into / 0.35)
+            ZStack {
+                tile(before, family, size).opacity(1 - k)
+                tile(now, family, size).opacity(k).blendMode(.plusLighter)
             }
+            .compositingGroup()
         }
+    }
+
+    private func widget(_ family: WidgetFamily, _ size: CGSize) -> some View {
+        chrome(size) { content(family, size) }
     }
 
     private var story: some View {
@@ -306,33 +314,35 @@ struct FilmFrame: View {
         return (a.1 + (b.1 - a.1) * k, a.2 + (b.2 - a.2) * k, a.3 + (b.3 - a.3) * k)
     }
 
-    /// The four sizes where they live: a capture of a real Mac desktop (build/film-assets/desktop.jpg, kept out
-    /// of git), shown as a screen, with the widgets tiling into its corner one after another at true size.
+    /// The four sizes where they live: a stock Mac desktop, shown as a screen, with the widgets tiling into
+    /// its top-left corner one after another at true size. Then all four turn to "needs you" together.
     private var sizes: some View {
-        let desk = CGSize(width: 1372, height: 888)      // the desktop, in points
-        let screenWidth = 1500.0, k = screenWidth / desk.width
+        let desk = MacDesktop.size
+        let k = 1500 / desk.width
         let slots: [(WidgetFamily, CGSize, CGPoint, Double)] = [
-            (.systemExtraLarge, CGSize(width: 704, height: 344), CGPoint(x: 652, y: 40), 28.55),
-            (.systemLarge, CGSize(width: 344, height: 344), CGPoint(x: 652, y: 400), 29.0),
-            (.systemMedium, CGSize(width: 344, height: 164), CGPoint(x: 1012, y: 400), 29.45),
-            (.systemSmall, CGSize(width: 164, height: 164), CGPoint(x: 1012, y: 580), 29.9),
+            (.systemExtraLarge, CGSize(width: 704, height: 344), CGPoint(x: 24, y: 46), 28.6),
+            (.systemLarge, CGSize(width: 344, height: 344), CGPoint(x: 24, y: 406), 29.15),
+            (.systemMedium, CGSize(width: 344, height: 164), CGPoint(x: 384, y: 406), 29.7),
+            (.systemSmall, CGSize(width: 164, height: 164), CGPoint(x: 384, y: 586), 30.25),
         ]
-        let m = Script.moment(tick)
+        let waiting = Script.moment(tick).state == .waiting && t - Double(tick) * Beat.seconds >= 0.085
         let screen = RoundedRectangle(cornerRadius: 18, style: .continuous)
         return ZStack(alignment: .topLeading) {
-            if let img = Assets.desktop {
-                Image(nsImage: img).resizable().interpolation(.high).frame(width: desk.width, height: desk.height)
-            } else {
-                Color(red: 0.33, green: 0.47, blue: 0.24).frame(width: desk.width, height: desk.height)
-            }
+            MacDesktop()
             ForEach(0..<slots.count, id: \.self) { i in
                 let (family, size, at, start) = slots[i]
                 // Each tile drops into its slot and settles with a small overshoot.
                 let x = min(1, max(0, (t - start) / 0.42)), back = 1 + 2.3 * pow(x - 1, 3) + 1.3 * pow(x - 1, 2)
-                chrome(size) { tile(m, family, size) }
-                    .scaleEffect(0.88 + 0.12 * back)
-                    .opacity(ramp(t, start, start + 0.16))
-                    .offset(x: at.x, y: at.y - 22 * (1 - back))
+                chrome(size) {
+                    // The small widget has no inner card, so its whole tile takes the clay.
+                    if family == .systemSmall && waiting {
+                        LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)
+                    }
+                    content(family, size)
+                }
+                .scaleEffect(0.88 + 0.12 * back)
+                .opacity(ramp(t, start, start + 0.16))
+                .offset(x: at.x, y: at.y - 22 * (1 - back))
             }
         }
         .frame(width: desk.width, height: desk.height, alignment: .topLeading)
@@ -344,7 +354,7 @@ struct FilmFrame: View {
         .background(Color.black, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: .black.opacity(0.35), radius: 40, y: 22)
         // A slow drift, then a push in on the widgets once all four have landed.
-        .scaleEffect(1 + 0.03 * ramp(t, 28.2, 31.6) + 0.24 * ramp(t, 30.45, 31.5), anchor: UnitPoint(x: 0.86, y: 0.26))
+        .scaleEffect(1 + 0.03 * ramp(t, 28.2, Script.endAt) + 0.3 * ramp(t, 30.9, 32.2), anchor: UnitPoint(x: 0.16, y: 0.3))
         .position(x: 960, y: 532)
     }
 
@@ -376,8 +386,9 @@ struct FilmFrame: View {
 
     /// The character trots on, under the name.
     private var endCard: some View {
-        let rise = { (d: Double) in 18 * (1 - ramp(t, 32.0 + d, 32.5 + d)) }
-        let show = { (d: Double) in ramp(t, 32.0 + d, 32.5 + d) }
+        let base = Script.endAt + 0.4
+        let rise = { (d: Double) in 18 * (1 - ramp(t, base + d, base + 0.5 + d)) }
+        let show = { (d: Double) in ramp(t, base + d, base + 0.5 + d) }
         let fps = ClawdMotion.fps(.working)
         return ZStack {
             LinearGradient(colors: [Self.paperTop, Self.paperBottom], startPoint: .top, endPoint: .bottom)
@@ -402,6 +413,108 @@ struct FilmFrame: View {
                     .padding(.top, 30).opacity(show(0.4)).offset(y: rise(0.4))
             }
             .offset(y: -10)
+        }
+    }
+}
+
+// MARK: - A stock Mac desktop
+
+/// A plain Mac desktop put together from this Mac's own system files: a stock wallpaper, the stock Dock apps'
+/// real icons, a standard menu bar, and a few files down the right-hand side. Nothing personal in it.
+struct MacDesktop: View {
+    static let size = CGSize(width: 1440, height: 900)
+
+    private static let wallpaper = NSImage(contentsOfFile: "build/film-assets/wallpaper.jpg")
+    private static let apps: [NSImage] = [
+        "/System/Library/CoreServices/Finder.app", "/System/Applications/Apps.app", "/Applications/Safari.app",
+        "/System/Applications/Messages.app", "/System/Applications/Mail.app", "/System/Applications/Maps.app",
+        "/System/Applications/Photos.app", "/System/Applications/FaceTime.app", "/System/Applications/Calendar.app",
+        "/System/Applications/Contacts.app", "/System/Applications/Reminders.app", "/System/Applications/Notes.app",
+        "/System/Applications/Freeform.app", "/System/Applications/TV.app", "/System/Applications/Music.app",
+        "/System/Applications/App Store.app", "/System/Applications/System Settings.app",
+    ].filter { FileManager.default.fileExists(atPath: $0) }.map { NSWorkspace.shared.icon(forFile: $0) }
+    private static let downloads = NSWorkspace.shared.icon(for: .folder)
+    private static let trash = NSImage(named: NSImage.trashEmptyName)
+    private static let head = NSImage(contentsOfFile: "App/Resources/MenuIconTemplate@2x.png")
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let w = Self.wallpaper {
+                Image(nsImage: w).resizable().interpolation(.high).scaledToFill()
+                    .frame(width: Self.size.width, height: Self.size.height).clipped()
+            } else {
+                LinearGradient(colors: [Color(red: 0.2, green: 0.45, blue: 0.75), Color(red: 0.5, green: 0.3, blue: 0.7)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            menuBar
+            files
+            dock
+        }
+        .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
+    }
+
+    private var menuBar: some View {
+        HStack(spacing: 18) {
+            Image(systemName: "apple.logo").font(.system(size: 15, weight: .medium))
+            Text("Finder").font(.system(size: 13.5, weight: .bold))
+            ForEach(["File", "Edit", "View", "Go", "Window", "Help"], id: \.self) { Text($0).font(.system(size: 13.5, weight: .medium)) }
+            Spacer(minLength: 0)
+            if let head = Self.head {
+                Image(nsImage: head).renderingMode(.template).resizable().frame(width: 18, height: 18)
+            }
+            Image(systemName: "battery.100percent").font(.system(size: 17))
+            Image(systemName: "wifi").font(.system(size: 14, weight: .semibold))
+            Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .semibold))
+            Image(systemName: "switch.2").font(.system(size: 13, weight: .semibold))
+            Text("Wed 11 Nov  9:41 AM").font(.system(size: 13.5, weight: .medium))
+        }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+        .padding(.horizontal, 16)
+        .frame(width: Self.size.width, height: 26)
+        .background(Color.black.opacity(0.10))
+    }
+
+    private func icon(_ image: NSImage?, _ side: CGFloat) -> some View {
+        Group {
+            if let image { Image(nsImage: image).resizable().interpolation(.high) } else { Color.clear }
+        }
+        .frame(width: side, height: side)
+    }
+
+    private var dock: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(Self.apps.enumerated()), id: \.offset) { i, app in
+                icon(app, 52).overlay(alignment: .bottom) {
+                    if i == 0 { Circle().fill(Color.white.opacity(0.85)).frame(width: 4, height: 4).offset(y: 5) }
+                }
+            }
+            Rectangle().fill(Color.white.opacity(0.35)).frame(width: 1, height: 44).padding(.horizontal, 7)
+            icon(Self.downloads, 52)
+            icon(Self.trash, 52)
+        }
+        .padding(.horizontal, 8).padding(.top, 5).padding(.bottom, 8)
+        .background(Color.white.opacity(0.24), in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).strokeBorder(Color.white.opacity(0.35), lineWidth: 0.6))
+        .frame(width: Self.size.width, height: Self.size.height - 7, alignment: .bottom)
+    }
+
+    /// Where files usually end up: down the right-hand edge.
+    private var files: some View {
+        VStack(spacing: 22) {
+            file(NSWorkspace.shared.icon(for: .folder), "Projects")
+            file(NSWorkspace.shared.icon(for: .folder), "Screenshots")
+            file(NSWorkspace.shared.icon(for: .png), "pricing-v2.png")
+        }
+        .frame(width: 110)
+        .offset(x: Self.size.width - 122, y: 46)
+    }
+
+    private func file(_ image: NSImage, _ name: String) -> some View {
+        VStack(spacing: 4) {
+            icon(image, 62)
+            Text(name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
         }
     }
 }
