@@ -50,7 +50,7 @@ final class PreviewModel: ObservableObject {
 
     init() {
         reload()
-        // Same beat as the widget's timeline: 2 s while something is active, 5 s otherwise.
+        // Same beat as the widget's timeline.
         schedule()
     }
 
@@ -58,8 +58,7 @@ final class PreviewModel: ObservableObject {
 
     private func schedule() {
         timer?.invalidate()
-        let lively = sessions.contains { $0.isActive }
-        timer = Timer.scheduledTimer(withTimeInterval: lively ? 2 : 5, repeats: false) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: Beat.seconds, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 if self.playing { self.tick += 1 }
@@ -70,7 +69,7 @@ final class PreviewModel: ObservableObject {
 
     func step(_ d: Int) {
         let n = Scenarios.all.count
-        index = (index + d + n) % n
+        withAnimation(Beat.morph) { index = (index + d + n) % n }
         schedule()
     }
 }
@@ -148,22 +147,24 @@ struct PreviewRoot: View {
     }
 }
 
-@main
-struct PulsePreviewApp: App {
-    @StateObject private var model = PreviewModel()
+/// Plain AppKit: one window with the SwiftUI view in it, created at launch. (A SwiftUI `App` scene sometimes
+/// never opens its window when the app is started from a shell, which broke the capture modes.)
+@MainActor
+final class PreviewDelegate: NSObject, NSApplicationDelegate {
+    let model = PreviewModel()
+    var window: NSWindow!
 
-    var body: some Scene {
-        Window("Pulse Preview", id: "preview") {
-            PreviewRoot(model: model)
-                .onAppear { start() }
-        }
-        .windowResizability(.contentSize)
-    }
-
-    private func start() {
-        NSApp.setActivationPolicy(.regular)
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let host = NSHostingView(rootView: PreviewRoot(model: model))
+        window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                          styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window.title = "Pulse Preview"
+        window.contentView = host
+        window.center()
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [model] e in
             switch e.keyCode {
             case 123: model.step(-1); return nil                    // ←
             case 124: model.step(1); return nil                     // →
@@ -176,10 +177,33 @@ struct PulsePreviewApp: App {
         if let i = args.firstIndex(of: "--capture"), i + 1 < args.count {
             Task { await capture(to: args[i + 1]) }
         }
+        if let i = args.firstIndex(of: "--frames"), i + 2 < args.count {
+            Task { await frames(scenario: Int(args[i + 1]) ?? 1, to: args[i + 2]) }
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    private func snapshot(_ path: String) {
+        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+
+    /// A burst while the tick plays: one frame every 0.25 s for 8 s, to check the motion is continuous.
+    private func frames(scenario: Int, to dir: String) async {
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        model.index = max(0, scenario - 1)
+        try? await Task.sleep(for: .seconds(2.5))
+        for f in 0..<32 {
+            snapshot(String(format: "%@/f%02d.png", dir, f))
+            try? await Task.sleep(for: .seconds(0.25))
+        }
+        NSApp.terminate(nil)
     }
 
     /// Snapshots the window itself (no screen-recording permission needed): each state at two ticks, both appearances.
-    @MainActor private func capture(to dir: String) async {
+    private func capture(to dir: String) async {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         model.playing = false
         try? await Task.sleep(for: .seconds(1))
@@ -189,18 +213,24 @@ struct PulsePreviewApp: App {
                 model.index = i
                 for t in [0, 1] {
                     model.tick = t
-                    try? await Task.sleep(for: .seconds(2.2))   // let the transition settle
-                    guard let view = NSApp.windows.first(where: { $0.isVisible })?.contentView else { continue }
-                    let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-                    view.cacheDisplay(in: view.bounds, to: rep)
-                    let name = String(format: "%02d-%@-%@-t%d.png", i + 1,
-                                      Scenarios.all[i].name.lowercased().replacingOccurrences(of: " ", with: "-")
-                                          .replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "'", with: ""),
-                                      dark ? "dark" : "light", t)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(dir)/\(name)"))
+                    try? await Task.sleep(for: .seconds(2.2))   // let the glide finish
+                    let slug = Scenarios.all[i].name.lowercased().replacingOccurrences(of: " ", with: "-")
+                        .replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "'", with: "")
+                    snapshot(String(format: "%@/%02d-%@-%@-t%d.png", dir, i + 1, slug, dark ? "dark" : "light", t))
                 }
             }
         }
         NSApp.terminate(nil)
+    }
+}
+
+@main
+enum PulsePreviewMain {
+    @MainActor static func main() {
+        let app = NSApplication.shared
+        let delegate = PreviewDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.regular)
+        app.run()
     }
 }

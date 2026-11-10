@@ -13,8 +13,18 @@ struct PulseEntry: TimelineEntry {
 }
 
 /// A widget can't loop an animation. It can only animate from one timeline entry to the next, so the
-/// timeline is a run of identical entries a beat apart: quick while something is working or waiting,
-/// slow (the lazy idle) otherwise.
+/// timeline is a run of identical entries one beat apart, and every animated value glides for the whole
+/// beat to its next keyframe. Motion never snaps and holds; it keeps moving, like a slow loop.
+enum Beat {
+    static let seconds: TimeInterval = 2
+    /// Back-and-forth values (bob, sway, breathing): eased, so a ping-pong reads as a sine.
+    static let ease = Animation.easeInOut(duration: seconds)
+    /// Travel and spin: constant speed.
+    static let linear = Animation.linear(duration: seconds)
+    /// A change of state: one smooth morph.
+    static let morph = Animation.smooth(duration: 0.9)
+}
+
 struct PulseProvider: TimelineProvider {
     func placeholder(in context: Context) -> PulseEntry {
         PulseEntry(date: .now, sessions: SessionSnapshot.samples, error: nil)
@@ -26,9 +36,8 @@ struct PulseProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PulseEntry>) -> Void) {
         let base = load()
-        let lively = base.sessions.contains { $0.isActive }
-        let beat: TimeInterval = lively ? 2 : 5
-        let count = 60                        // 2 minutes busy, 5 minutes idle
+        let beat = Beat.seconds
+        let count = 600                       // 20 minutes of frames, so motion outlasts a delayed reload
         let start = (base.date.timeIntervalSince1970 / beat).rounded(.up) * beat
         let entries = (0..<count).map { i -> PulseEntry in
             let t = start + Double(i) * beat
@@ -146,7 +155,8 @@ struct RingMark: View {
                 ring.stroke(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: line, dash: [size / 5, size / 5]))
                 ring.trim(from: 0, to: 0.25)
                     .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round))
-                    .rotationEffect(.degrees(-90 + Double(tick) * 90))
+                    .rotationEffect(.degrees(-90 + Double(tick) * 120))
+                    .animation(Beat.linear, value: tick)
             case .done:
                 ring.stroke(Pulse.green, lineWidth: line)
                 Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(Pulse.green)
@@ -162,7 +172,7 @@ struct RingMark: View {
             }
         }
         .frame(width: size, height: size)
-        .animation(.easeInOut(duration: 1.2), value: tick)
+        .animation(Beat.ease, value: tick)
     }
 }
 
@@ -193,7 +203,7 @@ struct StepSegments: View {
             }
         }
         .frame(height: height)
-        .animation(.easeInOut(duration: 1.2), value: tick)
+        .animation(Beat.ease, value: tick)
     }
 
     private var fill: Color { s.state == .idle ? Color.secondary : Color.primary }
@@ -239,6 +249,7 @@ struct Clawd: View {
         ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
                 ForEach(Array(p.solid.enumerated()), id: \.offset) { _, c in cell(c, p.lift) }
+                cell(Part(x: 18, y: 1, w: 1, h: 2), p.lift).opacity(p.cursor)
                 // Eyes are holes, so whatever is behind the card shows through.
                 ForEach(Array(p.eyes.enumerated()), id: \.offset) { _, c in cell(c, p.lift).blendMode(.destinationOut) }
             }
@@ -252,8 +263,8 @@ struct Clawd: View {
         }
         .foregroundStyle(color)
         .frame(width: Self.cols * px, height: (Self.head + 5) * py, alignment: .topLeading)
-        .animation(lazy ? .easeInOut(duration: 1.8) : .spring(response: 0.42, dampingFraction: 0.6), value: t)
-        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: mood)
+        .animation(Beat.ease, value: t)
+        .animation(Beat.morph, value: mood)
         .accessibilityHidden(true)
     }
 
@@ -297,7 +308,7 @@ struct Clawd: View {
         var extraL = Part(x: 1, y: 2, w: 0, h: 0)     // forearm / hand
         var extraR = Part(x: 16, y: 2, w: 0, h: 0)
         var hand = Part(x: 16, y: 2, w: 0, h: 0)
-        var cursor = Part(x: 18, y: 1, w: 0, h: 2)
+        var cursor: Double = 0      // the blinking block's opacity
         var legs: [CGFloat] = [1, 1, 1, 1]
         var eyes: [Part] = Pose.openEyes(dx: 0, y: 1, h: 1)
         var marks: [Mark] = []
@@ -312,7 +323,7 @@ struct Clawd: View {
                                         Part(x: 6, y: 1.5, w: 1, h: 0.5), Part(x: 13, y: 1.5, w: 1, h: 0.5)]
 
         var solid: [Part] {
-            [Part(x: 3, y: 0, w: 12, h: 4), armL, armR, extraL, extraR, hand, cursor] +
+            [Part(x: 3, y: 0, w: 12, h: 4), armL, armR, extraL, extraR, hand] +
             zip([4.0, 6, 11, 13], legs).map { Part(x: $0, y: 4, w: 1, h: $1) }
         }
     }
@@ -326,7 +337,7 @@ struct Clawd: View {
             p.eyes = Pose.openEyes(dx: 0, y: 1.6, h: 0.9)
             p.armL = Part(x: 1, y: odd ? 1.6 : 2, w: 2, h: 1)
             p.armR = Part(x: 15, y: odd ? 2 : 1.6, w: 2, h: 1)
-            p.cursor = Part(x: 18, y: 1, w: odd ? 0 : 1, h: 2)
+            p.cursor = odd ? 0.15 : 1
             p.legs = odd ? [1, 0.4, 1, 0.4] : [0.4, 1, 0.4, 1]
         case .waiting:
             // Waving for attention: arm out, forearm up, the hand rocking side to side under a "?".
@@ -405,7 +416,7 @@ struct Hero: View {
                                 let w = Clawd.size(px: 5).width
                                 Clawd(mood: s.mood, px: 5)
                                     .offset(x: max(0, g.size.width - w) * standX)
-                                    .animation(.easeInOut(duration: 1.9), value: standX)
+                                    .animation(Beat.linear, value: standX)
                             }
                             .frame(height: Clawd.size(px: 5).height)
                             if s.stepsTotal > 0 { StepSegments(s: s) }
@@ -437,6 +448,9 @@ struct Hero: View {
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            // A new state or a new session in the hero morphs in, rather than cutting.
+            .animation(Beat.morph, value: s.state)
+            .animation(Beat.morph, value: s.id)
         }
     }
 
@@ -553,7 +567,7 @@ struct ListRow: View {
             }
             .frame(minHeight: 20, maxHeight: 32)
             .contentShape(Rectangle())
-            .animation(.easeInOut(duration: 1.2), value: tick)
+            .animation(Beat.ease, value: tick)
         }
     }
 }
@@ -582,6 +596,8 @@ struct ListColumn: View {
             }
             if rows.count < maxRows { Spacer(minLength: 0) }
         }
+        // Rows slide to their new places when the order or a state changes.
+        .animation(Beat.morph, value: rows.map { "\($0.id)\($0.state)" })
     }
 }
 
