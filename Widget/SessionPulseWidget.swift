@@ -402,6 +402,7 @@ struct Hero: View {
     var fullBleed = false
     var othersWorking = 0
     static let smallPx: CGFloat = 2.5
+    static let heroPx: CGFloat = 4.5
 
     var body: some View {
         OpenLink(url: s.url) {
@@ -426,12 +427,14 @@ struct Hero: View {
                         // Standing on the steps bar, over the step it's on.
                         VStack(alignment: .leading, spacing: 1) {
                             GeometryReader { g in
-                                let w = Clawd.size(px: 5).width
-                                Clawd(mood: s.mood, px: 5, facingLeft: walkingLeft)
+                                let w = ClawdSprite.size(px: Self.heroPx).width
+                                ClawdLoop(mood: s.mood, px: Self.heroPx, walking: walkingNow)
+                                    .scaleEffect(x: facingLeft ? -1 : 1)
+                                    .animation(Beat.morph, value: facingLeft)
                                     .offset(x: max(0, g.size.width - w) * standX)
                                     .animation(Beat.linear, value: standX)
                             }
-                            .frame(height: Clawd.size(px: 5).height)
+                            .frame(height: ClawdSprite.size(px: Self.heroPx).height)
                             if s.stepsTotal > 0 { StepSegments(s: s) }
                         }
                     } else if s.stepsTotal > 0 && !(fullBleed && s.state == .waiting) {
@@ -445,11 +448,11 @@ struct Hero: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 }
-                .padding(.trailing, compact ? Clawd.size(px: Self.smallPx).width + 6 : 0)
+                .padding(.trailing, compact ? ClawdSprite.size(px: Self.smallPx).width + 6 : 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay(alignment: .bottomTrailing) {
-                if compact { Clawd(mood: s.mood, px: Self.smallPx) }
+                if compact { ClawdLoop(mood: s.mood, px: Self.smallPx) }
             }
             .padding(fullBleed ? 0 : compact ? 12 : 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -499,14 +502,20 @@ struct Hero: View {
     /// to end, one step a tick; otherwise it stays over the current step.
     private var standX: CGFloat { position(at: tick) }
 
-    private var walks: Bool { s.mood == .working || s.mood == .waiting }
-    private var walkingLeft: Bool { walks && position(at: tick + 1) < position(at: tick) }
+    /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
+    /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
+    private var walks: Bool { s.mood == .working }
+    private var walkingNow: Bool { walks && position(at: tick) != position(at: tick - 1) }
+    private var facingLeft: Bool {
+        guard walks else { return false }
+        let c = ((tick % 12) + 12) % 12
+        return c >= 6
+    }
 
-    /// A sine path (14 beats end to end and back), so it slows into each end instead of bouncing off it.
     private func position(at t: Int) -> CGFloat {
         if walks {
-            let theta = 2 * Double.pi * Double(t % 14) / 14
-            return CGFloat(0.5 - 0.5 * cos(theta))
+            let c = ((t % 12) + 12) % 12
+            return c <= 5 ? CGFloat(c) / 5 : c == 6 ? 1 : CGFloat(11 - c) / 5
         }
         guard s.stepsTotal > 1 else { return 0 }
         let i = min(s.stepsDone, s.stepsTotal - 1)
@@ -746,7 +755,7 @@ struct EmptyState: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .overlay(alignment: .bottomTrailing) {
             // Nothing to do: asleep. Can't read: sitting up, blinking. (No room for it in the small size.)
-            if showsCharacter { Clawd(mood: error == nil ? .sleeping : .resting, px: 3) }
+            if showsCharacter { ClawdLoop(mood: error == nil ? .sleeping : .resting, px: 3) }
         }
     }
 }

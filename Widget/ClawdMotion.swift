@@ -50,7 +50,7 @@ enum ClawdMotion {
 
     /// Brisk trot: diagonal feet lift high and swing in turn, the body rides up between steps and squashes as a
     /// foot lands, arms swing behind the body's beat, eyes squint on each strike and glance at you once a cycle.
-    static let stride = 0.54   // seconds per full cycle; two steps
+    static let stride = 0.55   // seconds per full cycle; two steps (8 to a 4.4 s loop)
     static func walk(_ t: Double) -> Pose {
         var p = Pose()
         let a = 2 * .pi * t / stride, s = sin(a), c = cos(a)
@@ -64,7 +64,7 @@ enum ClawdMotion {
         let u = t.truncatingRemainder(dividingBy: 4.4)
         p.eyeDX = 0.7 - 0.7 * (ramp(u, 1.8, 2.0) - ramp(u, 2.6, 2.8))   // a look at you, then back ahead
         p.eyeDY = -0.25 * abs(sin(a - 0.6))
-        p.eyeOpen = blink(t, every: 3.3) * (1 - 0.3 * max(0, cos(2 * a)))
+        p.eyeOpen = blink(t, every: 2.2) * (1 - 0.3 * max(0, cos(2 * a)))
         return p
     }
 
@@ -78,7 +78,7 @@ enum ClawdMotion {
         p.shift = 1.0 * look
         p.armL = -0.3 + (look < 0 ? 0.5 * -look : 0)
         p.armR = -0.3 + (look > 0 ? 0.5 * look : 0)
-        p.eyeOpen = blink(t, every: 2.9)
+        p.eyeOpen = blink(t, every: 2.2)
         return p
     }
 
@@ -107,9 +107,9 @@ enum ClawdMotion {
             p.shift *= 1 - settle
         }
         p.eyeDY = 0.35
-        p.eyeOpen = 1.25 * blink(t, every: 2.3)
-        let bob = 0.35 * sin(2 * .pi * t / 0.8)
-        p.marks = [Glyph(bits: question, x: 16.4, y: 1.2 + bob, scale: 0.6 + 0.06 * sin(2 * .pi * t / 0.8))]
+        p.eyeOpen = 1.25 * blink(t, every: waitLoop)
+        let bob = 0.35 * sin(2 * .pi * t / (waitLoop / 3))
+        p.marks = [Glyph(bits: question, x: 16.4, y: 1.2 + bob, scale: 0.6 + 0.06 * sin(2 * .pi * t / (waitLoop / 3)))]
         return p
     }
 
@@ -152,12 +152,12 @@ enum ClawdMotion {
     static func resting(_ t: Double) -> Pose {
         var p = Pose()
         p.legs = false; p.lift = -1
-        p.squash = 0.05 * sin(2 * .pi * t / 3.1)
+        p.squash = 0.05 * sin(2 * .pi * t / 3.0)
         p.armL = -0.5; p.armR = -0.5
         let u = t.truncatingRemainder(dividingBy: 9.0)
         p.eyeDX = 1.0 * (ramp(u, 0.2, 0.5) - ramp(u, 2.2, 2.5)) - 1.0 * (ramp(u, 3.4, 3.7) - ramp(u, 5.4, 5.7))
         p.shift = 1.0 * p.eyeDX
-        p.eyeOpen = blink(t, every: 4.3)
+        p.eyeOpen = blink(t, every: 4.5)
         let s = ramp(u, 6.3, 6.8) - ramp(u, 8.0, 8.5)   // the stretch
         if s > 0 {
             p.armL = -0.5 + 1.9 * s; p.armR = p.armL
@@ -172,7 +172,7 @@ enum ClawdMotion {
     static func sleeping(_ t: Double) -> Pose {
         var p = Pose()
         p.legs = false; p.lift = -1
-        let breath = sin(2 * .pi * t / 3.6)
+        let breath = sin(2 * .pi * t / 4.2)
         p.squash = 0.12 + 0.12 * breath
         p.armL = -0.8; p.armR = -0.8
         p.eyeOpen = 0.2; p.eyeDY = -0.2
@@ -182,6 +182,19 @@ enum ClawdMotion {
                          scale: 0.3 + 0.35 * k, opacity: sin(.pi * k))
         }
         return p
+    }
+
+    // MARK: Loops
+
+    /// Every mood's motion repeats exactly after this many seconds (all its inner rhythms divide it), so it
+    /// can be cut into a flip-book that loops without a seam.
+    static func loop(_ m: Mood) -> Double {
+        switch m { case .working: return 4.4; case .waiting: return waitLoop; case .done: return 2.0
+                   case .resting: return 9.0; case .sleeping: return 4.2 }
+    }
+    /// Flip-book frames per second on the desktop: lively moods quicker, lazy ones slower and lighter.
+    static func fps(_ m: Mood) -> Double {
+        switch m { case .working, .waiting, .done: return 15; case .resting: return 8; case .sleeping: return 10 }
     }
 
     // MARK: Helpers
@@ -313,4 +326,94 @@ struct ClawdSprite: View {
         case .resting, .sleeping: return AnyShapeStyle(Color.secondary.opacity(0.8))
         }
     }
+}
+
+// MARK: - Looping on the desktop
+
+/// The character, looping on its own. A widget can't run code, so on the desktop each loop is cut into
+/// frames, and macOS's clock-hand rotation (the effect that sweeps an analog clock's second hand) spins a
+/// mask that shows one frame at a time. In Pulse Preview, a TimelineView plays the same frames.
+struct ClawdLoop: View {
+    let mood: Mood
+    var px: CGFloat = 5
+    var walking = true
+
+    var body: some View {
+        let fps = ClawdMotion.fps(mood)
+        #if RENDER_HARNESS
+        TimelineView(.animation) { tl in
+            let t = (tl.date.timeIntervalSinceReferenceDate * fps).rounded(.down) / fps
+            ClawdSprite(mood: mood, t: t, px: px, walking: walking)
+        }
+        #else
+        FlipBook(period: ClawdMotion.loop(mood), fps: fps) { t in
+            ClawdSprite(mood: mood, t: t, px: px, walking: walking)
+        }
+        .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
+        #endif
+    }
+}
+
+/// Frames stacked up, each masked by a slice of a pie that turns once per loop around a pivot far below.
+/// The pivot is so far away that a slice edge crosses the sprite in a sliver of a frame, so it reads as a cut.
+struct FlipBook<Frame: View>: View {
+    let period: Double
+    let fps: Double
+    @ViewBuilder let frame: (Double) -> Frame
+
+    var body: some View {
+        let n = max(1, Int((period * fps).rounded()))
+        if let spin = ClockSpin.modifier(period: period) {
+            GeometryReader { g in
+                let size = max(g.size.width, g.size.height)
+                let pivot = size * 80, radius = pivot + size * 2
+                ZStack {
+                    ForEach(0..<n, id: \.self) { i in
+                        frame(Double(i) / fps).mask {
+                            ClockSpin.apply(spin, to: Slice(index: i, count: n).frame(width: radius * 2, height: radius * 2))
+                                .frame(width: radius * 2, height: radius * 2)
+                                .position(x: g.size.width / 2, y: g.size.height / 2 + pivot)
+                        }
+                    }
+                }
+            }
+        } else {
+            frame(0)   // the effect is gone (a future macOS): hold still rather than break
+        }
+    }
+
+    /// Frame i's slice, set so it sits over the sprite (straight up from the pivot) while the turn is within
+    /// [i, i+1) of n parts. A hair of overlap so no gap ever shows between neighbours.
+    private struct Slice: Shape {
+        let index: Int, count: Int
+        func path(in r: CGRect) -> Path {
+            let w = 2 * Double.pi / Double(count), up = -Double.pi / 2, e = 0.002
+            var p = Path()
+            let c = CGPoint(x: r.midX, y: r.midY)
+            p.move(to: c)
+            p.addArc(center: c, radius: r.width / 2, startAngle: .radians(up - Double(index + 1) * w - e),
+                     endAngle: .radians(up - Double(index) * w + e), clockwise: false)
+            p.closeSubpath()
+            return p
+        }
+    }
+}
+
+/// WidgetKit's clock-hand rotation, which keeps turning on the desktop with no new timeline entries. It is not
+/// in the public SDK, so it is built from its archived form; if a macOS update changes it, this returns nil.
+enum ClockSpin {
+    static func modifier(period: Double) -> (any ViewModifier)? {
+        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "$s9WidgetKit24_ClockHandRotationEffectVMa")
+        else { return nil }
+        typealias Accessor = @convention(c) (Int) -> UnsafeRawPointer
+        let type = unsafeBitCast(unsafeBitCast(sym, to: Accessor.self)(0), to: Any.Type.self)
+        guard let decodable = type as? any Decodable.Type else { return nil }
+        let json = #"{"anchor":[0.5,0.5],"honorIdealizedDate":false,"period":\#(period),"timeZone":{"identifier":"GMT"}}"#
+        return (try? decode(decodable, Data(json.utf8))) as? any ViewModifier
+    }
+
+    static func apply(_ m: any ViewModifier, to v: some View) -> AnyView { wrap(m, v) }
+
+    private static func wrap<M: ViewModifier>(_ m: M, _ v: some View) -> AnyView { AnyView(v.modifier(m)) }
+    private static func decode<D: Decodable>(_ t: D.Type, _ d: Data) throws -> D { try JSONDecoder().decode(t, from: d) }
 }

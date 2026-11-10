@@ -242,6 +242,7 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
     private func capture(to dir: String) async {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         model.playing = false
+        model.character = false
         try? await Task.sleep(for: .seconds(1))
         for dark in [true, false] {
             model.dark = dark
@@ -281,10 +282,7 @@ struct CharacterGallery: View {
     static let loops: [(String, Mood, Bool)] = [("working", .working, true), ("looking-about", .working, false),
                                                ("needs-you", .waiting, true), ("done", .done, true),
                                                ("paused", .resting, true), ("asleep", .sleeping, true)]
-    static func loopLength(_ m: Mood) -> Double {
-        switch m { case .working: return 4.4; case .waiting: return 2.6; case .done: return 2.0
-                   case .resting: return 9.0; case .sleeping: return 4.2 }
-    }
+    static func loopLength(_ m: Mood) -> Double { ClawdMotion.loop(m) }
 
     var body: some View {
         TimelineView(.animation(paused: !model.playing)) { tl in
