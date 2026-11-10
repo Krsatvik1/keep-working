@@ -486,14 +486,23 @@ struct ClawdLoop: View {
     /// A one-off act in place of the mood's loop (it plays once: the timeline swaps it out when it ends).
     var act: ClawdMotion.Act? = nil
 
+    @Environment(\.filmTime) private var film
+
     var body: some View {
         let fps = act == nil ? ClawdMotion.fps(mood) : 15
         let period = act == nil ? ClawdMotion.loop(mood) : ClawdMotion.actLength
         #if RENDER_HARNESS
-        TimelineView(.animation) { tl in
-            let t = (tl.date.timeIntervalSinceReferenceDate * fps).rounded(.down) / fps
+        if let film {
+            // The film's clock, cut to the flip-book's frame rate, exactly as the desktop shows it.
+            let t = (film * fps).rounded(.down) / fps
             ClawdSprite(mood: mood, t: act == nil ? t : t.truncatingRemainder(dividingBy: period), px: px,
                         walking: walking, act: act)
+        } else {
+            TimelineView(.animation) { tl in
+                let t = (tl.date.timeIntervalSinceReferenceDate * fps).rounded(.down) / fps
+                ClawdSprite(mood: mood, t: act == nil ? t : t.truncatingRemainder(dividingBy: period), px: px,
+                            walking: walking, act: act)
+            }
         }
         #else
         FlipBook(period: period, fps: fps) { t in

@@ -17,6 +17,8 @@ struct PulseEntry: TimelineEntry {
     var act: ClawdMotion.Act? = nil
     /// The first beat of that act: the new image is still bright and soft, just "developed".
     var developing = false
+    /// The beat the act started on. The walker holds the spot it had then until the act is over.
+    var actTick: Int? = nil
 }
 
 /// Notices when the hero session's last image changes and schedules the snapshot act for it. Kept in the
@@ -102,6 +104,7 @@ struct PulseProvider: TimelineProvider {
                 if e.date < arrival.start { e.heroImage = arrival.previous }
                 else if e.date < end {
                     e.act = .snapshot
+                    e.actTick = Int(arrival.start.timeIntervalSince1970 / beat)
                     e.developing = e.date < arrival.start.addingTimeInterval(beat)
                 }
             }
@@ -124,7 +127,42 @@ private struct TickKey: EnvironmentKey { static let defaultValue = 0 }
 private struct HeroImageKey: EnvironmentKey { static let defaultValue: Data? = nil }
 private struct HeroActKey: EnvironmentKey { static let defaultValue: ClawdMotion.Act? = nil }
 private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
+private struct ActTickKey: EnvironmentKey { static let defaultValue: Int? = nil }
+private struct FilmTimeKey: EnvironmentKey { static let defaultValue: Double? = nil }
+private struct DevelopAmountKey: EnvironmentKey { static let defaultValue: Double? = nil }
+
+/// The film renderer (Tools/Film.swift) draws these same views one frame at a time, where nothing animates
+/// by itself. Given the film's clock, this returns where a beat-long glide has got to at that instant: the
+/// value the desktop would be showing part-way from the last entry's value to this one's. On the desktop the
+/// clock is nil and it is simply this entry's value, which SwiftUI then glides to.
+enum Glide {
+    static func at(_ film: Double?, _ tick: Int, linear: Bool = false, span: Double = 1, _ f: (Int) -> Double) -> Double {
+        guard let film else { return f(tick) }
+        let beats = film / Beat.seconds
+        var k = min(1, (beats - beats.rounded(.down)) / span)
+        if !linear { k = k * k * (3 - 2 * k) }
+        let a = f(tick - 1), b = f(tick)
+        return a + (b - a) * k
+    }
+    /// 0 on even beats, 1 on odd ones: the two ends of every back-and-forth pulse.
+    static func pulse(_ film: Double?, _ tick: Int) -> Double { at(film, tick) { $0 % 2 == 0 ? 0 : 1 } }
+}
+
 extension EnvironmentValues {
+    var heroActTick: Int? {
+        get { self[ActTickKey.self] }
+        set { self[ActTickKey.self] = newValue }
+    }
+    /// Seconds on the film's clock; nil everywhere but the film renderer.
+    var filmTime: Double? {
+        get { self[FilmTimeKey.self] }
+        set { self[FilmTimeKey.self] = newValue }
+    }
+    /// Film only: how freshly developed the hero image is, 1 just snapped … 0 settled.
+    var developAmount: Double? {
+        get { self[DevelopAmountKey.self] }
+        set { self[DevelopAmountKey.self] = newValue }
+    }
     var heroAct: ClawdMotion.Act? {
         get { self[HeroActKey.self] }
         set { self[HeroActKey.self] = newValue }
@@ -214,19 +252,21 @@ extension SessionKind {
 /// The 16pt mark in front of a list row. Each state differs by shape, not only colour.
 struct RingMark: View {
     @Environment(\.pulseTick) private var tick
+    @Environment(\.filmTime) private var film
     let s: SessionSnapshot
     var size: CGFloat = 16
 
     var body: some View {
         let line = size / 8
+        let h = Glide.pulse(film, tick)
         let ring = Circle().inset(by: line)
         ZStack {
             switch s.state {
             case .waiting:
                 Circle().fill(Pulse.clay).padding(size * 0.22)
-                Circle().stroke(Pulse.clay.opacity(tick % 2 == 0 ? 0.45 : 0.12), lineWidth: size * 0.18)
+                Circle().stroke(Pulse.clay.opacity(0.45 - 0.33 * h), lineWidth: size * 0.18)
                     .padding(size * 0.13)
-                    .scaleEffect(tick % 2 == 0 ? 0.85 : 1.15)
+                    .scaleEffect(0.85 + 0.30 * h)
             case .running where s.stepsTotal > 0:
                 ring.stroke(Color.primary.opacity(0.16), lineWidth: line)
                 ring.trim(from: 0, to: max(0.06, s.progress ?? 0))
@@ -236,7 +276,7 @@ struct RingMark: View {
                 ring.stroke(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: line, dash: [size / 5, size / 5]))
                 ring.trim(from: 0, to: 0.25)
                     .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round))
-                    .rotationEffect(.degrees(-90 + Double(tick) * 120))
+                    .rotationEffect(.degrees(-90 + Glide.at(film, tick, linear: true) { Double($0) * 120 }))
                     .animation(Beat.linear, value: tick)
             case .done:
                 ring.stroke(Pulse.green, lineWidth: line)
@@ -260,6 +300,7 @@ struct RingMark: View {
 /// One segment per step: done ones solid, the current one half, the rest a faint track.
 struct StepSegments: View {
     @Environment(\.pulseTick) private var tick
+    @Environment(\.filmTime) private var film
     let s: SessionSnapshot
     var height: CGFloat = 4
 
@@ -278,7 +319,7 @@ struct StepSegments: View {
             } else {
                 HStack(spacing: 3) {
                     ForEach(0..<max(total, 1), id: \.self) { i in
-                        Capsule().fill(i < s.stepsDone ? fill : (i == s.stepsDone && s.state == .running ? fill.opacity(tick % 2 == 0 ? 0.25 : 0.8) : Color.primary.opacity(0.14)))
+                        Capsule().fill(i < s.stepsDone ? fill : (i == s.stepsDone && s.state == .running ? fill.opacity(0.25 + 0.55 * Glide.pulse(film, tick)) : Color.primary.opacity(0.14)))
                     }
                 }
             }
@@ -486,6 +527,9 @@ struct Hero: View {
     @Environment(\.heroImage) private var heroImage
     @Environment(\.heroAct) private var heroAct
     @Environment(\.imageDeveloping) private var developing
+    @Environment(\.heroActTick) private var actTick
+    @Environment(\.filmTime) private var film
+    @Environment(\.developAmount) private var developAmount
     @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
     var compact = false
@@ -518,19 +562,20 @@ struct Hero: View {
                 // A clear view sets the size, so the filled image can't push the card wider.
                 // A freshly snapped image starts bright and soft, then develops into place over the next beat.
                 if let heroImage, let ns = NSImage(data: heroImage) {
+                    let dv = developAmount ?? (developing ? 1 : 0)
                     Color.clear
-                        .overlay(Image(nsImage: ns).resizable().scaledToFill().blur(radius: developing ? 6 : 0))
-                        .opacity(developing ? 0.46 : 0.16)
+                        .overlay(Image(nsImage: ns).resizable().scaledToFill().blur(radius: 6 * dv))
+                        .opacity(0.16 + 0.30 * dv)
                         .mask(LinearGradient(colors: [.black, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom))
                         .clipShape(card)
                         .id(heroImage.count)
                         .transition(.opacity)
-                    card.fill(Color.white).opacity(developing ? 0.3 : 0)   // the flash
+                    card.fill(Color.white).opacity(0.3 * dv)   // the flash
                 }
                 // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
                 card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
                                          startPoint: .top, endPoint: .bottom))
-                    .opacity(s.state == .waiting && tick % 2 == 1 ? 1 : 0)
+                    .opacity(s.state == .waiting ? Glide.pulse(film, tick) : 0)
             }
             .animation(Beat.ease, value: tick)
             .animation(.easeOut(duration: Beat.seconds * 1.1), value: developing)
@@ -545,7 +590,7 @@ struct Hero: View {
             let w = ClawdSprite.size(px: Self.heroPx).width
             ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct)
                 .animation(Beat.morph, value: heroAct)
-                .scaleEffect(x: facingLeft ? -1 : 1)
+                .scaleEffect(x: Glide.at(film, tick, span: 0.45) { facingLeft(at: $0) ? -1 : 1 })
                 .animation(Beat.morph, value: facingLeft)
                 .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
                 .animation(Beat.linear, value: standX)
@@ -621,8 +666,8 @@ struct Hero: View {
         HStack(spacing: 7) {
             if s.state == .waiting {
                 Circle().fill(Pulse.clay).frame(width: 8, height: 8)
-                    .overlay(Circle().stroke(Pulse.clay.opacity(tick % 2 == 0 ? 0.5 : 0.1), lineWidth: 3)
-                        .padding(tick % 2 == 0 ? -2 : -5))
+                    .overlay(Circle().stroke(Pulse.clay.opacity(0.5 - 0.4 * Glide.pulse(film, tick)), lineWidth: 3)
+                        .padding(-2 - 3 * Glide.pulse(film, tick)))
             } else {
                 RingMark(s: s, size: 12)
             }
@@ -635,22 +680,28 @@ struct Hero: View {
 
     /// Where the character stands along the bar, 0…1. While working or waiting it paces slowly from end
     /// to end, one step a tick; otherwise it stays over the current step.
-    private var standX: CGFloat { position(at: tick) }
+    private var standX: CGFloat { CGFloat(Glide.at(film, tick, linear: true) { Double(position(at: $0)) }) }
 
     /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
     /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
     private var mood: Mood { s.mood }
     private var walks: Bool { mood == .working }
     private var walkingNow: Bool { heroAct == nil && walks && position(at: tick) != position(at: tick - 1) }
-    private var facingLeft: Bool {
+    private var facingLeft: Bool { facingLeft(at: tick) }
+    private func facingLeft(at t: Int) -> Bool {
         guard walks else { return false }
-        let c = ((tick % 12) + 12) % 12
+        let c = ((walkTick(t) % 12) + 12) % 12
         return c >= 6
+    }
+    /// During a one-off act the walker holds the spot, and the way it faced, from the beat before the act.
+    private func walkTick(_ t: Int) -> Int {
+        guard heroAct != nil, let actTick else { return t }
+        return min(t, actTick - 1)
     }
 
     private func position(at t: Int) -> CGFloat {
         if walks {
-            let c = ((t % 12) + 12) % 12
+            let c = ((walkTick(t) % 12) + 12) % 12
             return c <= 5 ? CGFloat(c) / 5 : c == 6 ? 1 : CGFloat(11 - c) / 5
         }
         guard s.stepsTotal > 1 else { return 0 }
@@ -707,6 +758,7 @@ struct Hero: View {
 struct ListRow: View {
     @Environment(\.widgetRenderingMode) private var mode
     @Environment(\.pulseTick) private var tick
+    @Environment(\.filmTime) private var film
     let s: SessionSnapshot
 
     private func titleText(withDetail: Bool) -> Text {
@@ -735,7 +787,7 @@ struct ListRow: View {
             }
             .padding(.horizontal, 6)
             .frame(maxHeight: 29)
-            .background(s.state == .waiting ? Pulse.clay.opacity(tick % 2 == 0 ? 0.13 : 0.24) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(s.state == .waiting ? Pulse.clay.opacity(0.13 + 0.11 * Glide.pulse(film, tick)) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 if s.state == .waiting && mode != .fullColor {
                     RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.5), lineWidth: 1.5)
@@ -841,6 +893,7 @@ struct PulseWidgetView: View {
             .environment(\.heroImage, entry.heroImage)
             .environment(\.heroAct, entry.act)
             .environment(\.imageDeveloping, entry.developing)
+            .environment(\.heroActTick, entry.actTick)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)
