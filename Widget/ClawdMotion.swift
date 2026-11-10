@@ -26,6 +26,13 @@ enum ClawdMotion {
         var eyeOpen = 1.0           // 0 shut … 1 open, 1.3 wide
         var happy = false           // ^ ^
         var marks: [Glyph] = []
+        /// Things it holds (a magnifier, a camera), in cells from the body's centre and rows from its bottom.
+        /// Over the body a prop is cut out, so it shows as an outline; off the body it is solid.
+        var props: [Box] = []
+        /// Always cut out, wherever they fall (a camera's lens).
+        var cuts: [Box] = []
+        /// The right eye drawn bigger (seen through a lens), centred here, in the same body-relative units.
+        var bigEye: (x: Double, y: Double, w: Double, h: Double)? = nil
     }
 
     static let question = ["0110", "1001", "0001", "0010", "0000", "0010"]
@@ -184,6 +191,130 @@ enum ClawdMotion {
         return p
     }
 
+    // MARK: Acts: reacting to a new image
+
+    /// One-off reactions when a new image arrives behind the hero. Each runs `actLength` seconds from a neutral
+    /// stand and ends in one, so it can cut in from any mood and hand back to it.
+    enum Act: String, CaseIterable { case magnify, lookUp, snapshot }
+    static let actLength = 6.0
+    static let bang = ["1", "1", "1", "0", "1"]
+    /// A lens ring, 5 square pixels across (a pixel is 1 cell wide and 1/1.7 row tall).
+    static let ring = ["01110", "10001", "10001", "10001", "01110"]
+
+    static func act(_ a: Act, t: Double) -> Pose {
+        switch a {
+        case .magnify: return magnify(t)
+        case .lookUp: return lookUp(t)
+        case .snapshot: return snapshot(t)
+        }
+    }
+
+    /// Square-pixel bits as body-relative boxes, bottom-left at (x, y).
+    static func bits(_ rows: [String], x: Double, y: Double) -> [Box] {
+        let ph = 1 / 1.7
+        var out: [Box] = []
+        for (j, row) in rows.enumerated() {
+            for (i, ch) in row.enumerated() where ch == "1" {
+                out.append(Box(x: x + Double(i), y: y + Double(rows.count - 1 - j) * ph, w: 1, h: ph))
+            }
+        }
+        return out
+    }
+
+    /// A: it glances up at the image, raises a magnifying glass to its right eye (the eye swells in the lens),
+    /// scans across the picture, lowers it, and gives a pleased nod.
+    static func magnify(_ t: Double) -> Pose {
+        var p = Pose()
+        p.squash = 0.04 * sin(2 * .pi * t / 1.5)
+        let raise = ramp(t, 0.5, 1.0) - ramp(t, 4.9, 5.4)
+        let scanOn = ramp(t, 1.0, 1.3) - ramp(t, 4.6, 4.9)
+        let scan = sin(2 * .pi * (t - 1.0) / 1.8) * scanOn
+        let glance = ramp(t, 0.1, 0.4) * (1 - raise)
+        p.eyeDY = 0.4 * glance
+        p.eyeDX = -0.6 * glance + 0.6 * scan
+        p.shift = 0.9 * scan
+        p.armL = -0.3
+        p.armR = -0.3 + 0.9 * raise
+        if raise > 0.02 {
+            // The lens slides in from the lower right onto the right eye; its handle runs out to the hand.
+            let lx = 3.5 + p.eyeDX + (1 - raise) * 6, ly = 2.5 - (1 - raise) * 2.5
+            let ph = 1 / 1.7
+            p.props = bits(ring, x: lx - 2.5, y: ly - 2.5 * ph)
+                + [Box(x: lx + 2.4, y: ly - 0.35, w: 1, h: 0.6), Box(x: lx + 3.3, y: ly - 0.55, w: 1, h: 0.6)]
+            if raise > 0.6 { p.bigEye = (x: lx, y: ly, w: 1.8, h: 1.5) }
+        }
+        let nod = ramp(t, 5.3, 5.5) - ramp(t, 5.8, 6.0)
+        if nod > 0 { p.happy = true; p.lift = 0.3 * sin(.pi * nod) }
+        p.eyeOpen = blink(t, every: 3.0)
+        return p
+    }
+
+    /// B: a "!" and a startled hop, then it looks up at the picture and reads it line by line, eyes sweeping
+    /// left to right and dropping a line each time, and ends with two nods.
+    static func lookUp(_ t: Double) -> Pose {
+        var p = Pose()
+        if t < 0.6 {
+            let (lift, squash, air) = hop(t / 0.6, height: 1.1)
+            p.lift = lift; p.squash = squash
+            p.armL = air > 0 ? 1.0 : -0.3; p.armR = p.armL
+        } else {
+            p.armL = -0.3; p.armR = -0.3
+            p.squash = 0.03 * sin(2 * .pi * t / 1.5)
+        }
+        let bangOn = ramp(t, 0.0, 0.12) - ramp(t, 1.1, 1.4)
+        if bangOn > 0 {
+            p.marks = [Glyph(bits: bang, x: 9.6, y: 0.8 + 0.6 * bangOn, scale: 0.7, opacity: bangOn)]
+        }
+        let up = ramp(t, 0.5, 0.8) - ramp(t, 4.9, 5.2)
+        p.eyeOpen = t < 1.2 ? 1.3 : blink(t, every: 2.4)
+        p.eyeDY = 0.5 * up
+        if t >= 0.6 { p.squash -= 0.08 * up; p.lift += 0.25 * up }   // stretches up to look
+        if t >= 1.2 && t < 4.8 {
+            let line = floor((t - 1.2) / 1.2), u = (t - 1.2) - line * 1.2
+            p.eyeDX = u < 1.0 ? -0.9 + 1.8 * ease(u / 1.0) : 0.9 - 1.8 * ease((u - 1.0) / 0.2)
+            p.eyeDY -= 0.18 * line
+            p.shift = 0.8 * p.eyeDX
+            if u >= 1.0 { p.lift -= 0.25 * sin(.pi * (u - 1.0) / 0.2) }   // a little dip at each new line
+        }
+        let nods = ramp(t, 5.0, 5.1) - ramp(t, 5.8, 5.9)
+        if nods > 0 { p.squash += 0.12 * abs(sin(2 * .pi * (t - 5.0) / 0.8)) * nods }
+        return p
+    }
+
+    /// C: it holds a little camera up beside its head, the flash goes, it lowers the camera and admires the
+    /// picture with ^ ^ eyes and a couple of happy bounces.
+    static func snapshot(_ t: Double) -> Pose {
+        var p = Pose()
+        let raise = ramp(t, 0.1, 0.6) - ramp(t, 1.0, 1.5)
+        p.armL = -0.3 + 0.9 * raise
+        p.armR = -0.3 + 1.5 * raise
+        if raise > 0.02 {
+            // Held up in the right hand, beside the head: body, a viewfinder bump, a lens cut through.
+            let cy = 3.6 - (1 - raise) * 2.5, cxp = 4.8
+            p.props = [Box(x: cxp, y: cy, w: 4, h: 1.7), Box(x: cxp + 0.4, y: cy + 1.7, w: 1.2, h: 0.4)]
+            p.cuts = [Box(x: cxp + 1.5, y: cy + 0.45, w: 1, h: 0.8)]
+            p.eyeDX = 0.7 * raise; p.eyeDY = 0.3 * raise
+        }
+        let flash = t > 0.62 && t < 0.95
+        if flash {
+            let k = (t - 0.62) / 0.33
+            p.marks = [Glyph(bits: star, x: 15.6 - 0.9 * k, y: 0.1 - 0.4 * k, scale: 1.0 + 0.8 * k, opacity: 1 - k)]
+            p.eyeOpen = 0.25
+        } else {
+            p.eyeOpen = blink(t, every: 3.0)
+        }
+        let admire = ramp(t, 1.5, 1.7) - ramp(t, 5.0, 5.3)
+        if admire > 0 {
+            p.happy = admire > 0.5
+            let b = sin(2 * .pi * (t - 1.5) / 0.7)
+            p.lift = 0.5 * abs(b) * admire
+            p.squash = 0.06 * cos(4 * .pi * (t - 1.5) / 0.7) * admire
+            p.armL = (0.6 + 0.5 * b) * admire - 0.3 * (1 - admire)
+            p.armR = (0.6 - 0.5 * b) * admire - 0.3 * (1 - admire)
+        }
+        return p
+    }
+
     // MARK: Loops
 
     /// Every mood's motion repeats exactly after this many seconds (all its inner rhythms divide it), so it
@@ -266,6 +397,16 @@ enum ClawdMotion {
                 f.holes.append(Box(x: ex - 0.5, y: eyeY - eh / 2, w: 1, h: eh))
             }
         }
+        if let e = p.bigEye {
+            f.holes.removeLast()   // the right eye, replaced by its magnified self
+            f.holes.append(Box(x: cx + e.x - e.w / 2, y: bottom + e.y - e.h / 2, w: e.w, h: e.h))
+        }
+        for b in p.props {
+            let abs = Box(x: cx + b.x, y: bottom + b.y, w: b.w, h: b.h)
+            let mx = abs.x + abs.w / 2, my = abs.y + abs.h / 2
+            if mx > left && mx < right && my > bottom && my < bottom + h { f.holes.append(abs) } else { f.solid.append(put(abs)) }
+        }
+        f.holes += p.cuts.map { Box(x: cx + $0.x, y: bottom + $0.y, w: $0.w, h: $0.h) }
         f.holes = f.holes.map(put)
         f.marks = p.marks.map { var g = $0; g.y += bottom + h; return g }
         return f
@@ -279,12 +420,14 @@ struct ClawdSprite: View {
     var px: CGFloat = 6
     var walking = true
     var turn = 1.0
+    /// When set, `t` is seconds into this one-off act instead of the mood's loop.
+    var act: ClawdMotion.Act? = nil
 
     static let cols: CGFloat = 22, rows: CGFloat = 14
     static func size(px: CGFloat) -> CGSize { CGSize(width: cols * px, height: rows * px * 1.7) }
 
     var body: some View {
-        let f = ClawdMotion.frame(ClawdMotion.pose(mood, t: t, walking: walking, turn: turn))
+        let f = ClawdMotion.frame(act.map { ClawdMotion.act($0, t: t) } ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn))
         let py = px * 1.7
         Canvas { ctx, size in
             let H = size.height
@@ -340,17 +483,21 @@ struct ClawdLoop: View {
     let mood: Mood
     var px: CGFloat = 5
     var walking = true
+    /// A one-off act in place of the mood's loop (it plays once: the timeline swaps it out when it ends).
+    var act: ClawdMotion.Act? = nil
 
     var body: some View {
-        let fps = ClawdMotion.fps(mood)
+        let fps = act == nil ? ClawdMotion.fps(mood) : 15
+        let period = act == nil ? ClawdMotion.loop(mood) : ClawdMotion.actLength
         #if RENDER_HARNESS
         TimelineView(.animation) { tl in
             let t = (tl.date.timeIntervalSinceReferenceDate * fps).rounded(.down) / fps
-            ClawdSprite(mood: mood, t: t, px: px, walking: walking)
+            ClawdSprite(mood: mood, t: act == nil ? t : t.truncatingRemainder(dividingBy: period), px: px,
+                        walking: walking, act: act)
         }
         #else
-        FlipBook(period: ClawdMotion.loop(mood), fps: fps) { t in
-            ClawdSprite(mood: mood, t: t, px: px, walking: walking, toned: false)
+        FlipBook(period: period, fps: fps) { t in
+            ClawdSprite(mood: mood, t: t, px: px, walking: walking, act: act, toned: false)
         }
         .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
         .compositingGroup()

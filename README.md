@@ -78,3 +78,8 @@ Motion, and what macOS allows (all found by testing on the desktop):
 - Every entry carries every flip-book frame, and macOS rejects a timeline archive over a few MB (38 MB failed;
   ~5 MB passes) and kills a build over ~30 s. So the timeline is 20 entries; the app reloads it on every change.
 - Nothing may sit over a widget `Link` or the click is lost, so the hero's card and character are drawn behind it.
+
+New image: when the hero session's last image changes, the hero plays a one-off **snapshot** act (it raises a
+camera, the flash fires, the image develops from bright and soft into the faded background, then a happy bounce).
+`ImageArrival` notices the change and starts the act on the next 6 s boundary so the flip-book begins at frame 0.
+Pulse Preview's **I** page shows the three options that were tried (magnifier, look up, snapshot).

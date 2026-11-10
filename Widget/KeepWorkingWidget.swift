@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WidgetKit
+import os
 
 // MARK: - Timeline
 
@@ -12,6 +13,51 @@ struct PulseEntry: TimelineEntry {
     var tick = 0
     /// The hero session's last image, small, shown faded behind the hero.
     var heroImage: Data? = nil
+    /// Set on the entries during which the hero reacts to a new image (it takes a snapshot).
+    var act: ClawdMotion.Act? = nil
+    /// The first beat of that act: the new image is still bright and soft, just "developed".
+    var developing = false
+}
+
+/// Notices when the hero session's last image changes and schedules the snapshot act for it. Kept in the
+/// extension's own defaults, so every widget size and every reload agrees on when the act runs.
+enum ImageArrival {
+    private static let d = UserDefaults.standard
+
+    /// When the act starts (on a multiple of the act's length, so the flip-book begins at its first frame)
+    /// and the image to keep showing until then. Nil when nothing new arrived in the last few seconds.
+    static func note(session: String?, image: Data?, now: Date) -> (start: Date, previous: Data?)? {
+        guard let session, let image else { return nil }
+        let key = "\(session):\(fnv(image))"
+        let old = d.string(forKey: "arrival.key")
+        if old != key {
+            let sameSession = old?.hasPrefix(session + ":") ?? false
+            let previous = d.data(forKey: "arrival.image")
+            d.set(key, forKey: "arrival.key")
+            d.set(image, forKey: "arrival.image")
+            if sameSession {
+                let len = ClawdMotion.actLength
+                let start = (now.timeIntervalSince1970 / len).rounded(.up) * len
+                d.set(start, forKey: "arrival.start")
+                d.set(previous, forKey: "arrival.previous")
+                Logger(subsystem: "xyz.krsatvik.KeepWorking", category: "arrival")
+                    .info("new image in the hero session, snapshot act at \(start, privacy: .public)")
+            } else {
+                // A different session took the hero spot: its image just appears, no act.
+                d.removeObject(forKey: "arrival.start")
+            }
+        }
+        let start = d.double(forKey: "arrival.start")
+        guard start > 0, now.timeIntervalSince1970 < start + ClawdMotion.actLength else { return nil }
+        return (Date(timeIntervalSince1970: start), d.data(forKey: "arrival.previous"))
+    }
+
+    /// A stable hash (Swift's own is seeded per process).
+    private static func fnv(_ data: Data) -> String {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in data { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        return String(h, radix: 16)
+    }
 }
 
 /// A widget can't loop an animation. It can only animate from one timeline entry to the next, so the
@@ -44,10 +90,23 @@ struct PulseProvider: TimelineProvider {
         base.tick = Int((base.date.timeIntervalSince1970 / beat).rounded(.down))
         let count = 20                        // 40 s of 2 s beats. Each entry carries every flip-book frame, and macOS rejects a timeline archive much past ~5–10 MB; the app reloads on every session change anyway
         let start = (base.date.timeIntervalSince1970 / beat).rounded(.up) * beat
-        let entries = (0..<count).map { i -> PulseEntry in
+        var entries = (0..<count).map { i -> PulseEntry in
             let t = start + Double(i) * beat
             return PulseEntry(date: Date(timeIntervalSince1970: t), sessions: base.sessions, error: base.error,
                               tick: Int(t / beat), heroImage: base.heroImage)
+        }
+        // A new image in the hero session: keep the old one until the act, then snapshot it in.
+        if let arrival = ImageArrival.note(session: ordered(base.sessions).first?.id, image: base.heroImage, now: base.date) {
+            let end = arrival.start.addingTimeInterval(ClawdMotion.actLength)
+            func stage(_ e: inout PulseEntry) {
+                if e.date < arrival.start { e.heroImage = arrival.previous }
+                else if e.date < end {
+                    e.act = .snapshot
+                    e.developing = e.date < arrival.start.addingTimeInterval(beat)
+                }
+            }
+            stage(&base)
+            for i in entries.indices { stage(&entries[i]) }
         }
         // The menu-bar app also nudges a reload whenever a session file changes.
         completion(Timeline(entries: [base] + entries, policy: .after(entries.last!.date)))
@@ -63,7 +122,17 @@ struct PulseProvider: TimelineProvider {
 
 private struct TickKey: EnvironmentKey { static let defaultValue = 0 }
 private struct HeroImageKey: EnvironmentKey { static let defaultValue: Data? = nil }
+private struct HeroActKey: EnvironmentKey { static let defaultValue: ClawdMotion.Act? = nil }
+private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
+    var heroAct: ClawdMotion.Act? {
+        get { self[HeroActKey.self] }
+        set { self[HeroActKey.self] = newValue }
+    }
+    var imageDeveloping: Bool {
+        get { self[DevelopingKey.self] }
+        set { self[DevelopingKey.self] = newValue }
+    }
     var heroImage: Data? {
         get { self[HeroImageKey.self] }
         set { self[HeroImageKey.self] = newValue }
@@ -415,6 +484,8 @@ struct StageKey: PreferenceKey {
 struct Hero: View {
     @Environment(\.widgetRenderingMode) private var mode
     @Environment(\.heroImage) private var heroImage
+    @Environment(\.heroAct) private var heroAct
+    @Environment(\.imageDeveloping) private var developing
     @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
     var compact = false
@@ -445,12 +516,16 @@ struct Hero: View {
                 card.fill(background)
                 // The last image in the conversation, faded right back so the text stays the subject.
                 // A clear view sets the size, so the filled image can't push the card wider.
+                // A freshly snapped image starts bright and soft, then develops into place over the next beat.
                 if let heroImage, let ns = NSImage(data: heroImage) {
                     Color.clear
-                        .overlay(Image(nsImage: ns).resizable().scaledToFill())
-                        .opacity(0.16)
+                        .overlay(Image(nsImage: ns).resizable().scaledToFill().blur(radius: developing ? 6 : 0))
+                        .opacity(developing ? 0.46 : 0.16)
                         .mask(LinearGradient(colors: [.black, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom))
                         .clipShape(card)
+                        .id(heroImage.count)
+                        .transition(.opacity)
+                    card.fill(Color.white).opacity(developing ? 0.3 : 0)   // the flash
                 }
                 // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
                 card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
@@ -458,15 +533,18 @@ struct Hero: View {
                     .opacity(s.state == .waiting && tick % 2 == 1 ? 1 : 0)
             }
             .animation(Beat.ease, value: tick)
+            .animation(.easeOut(duration: Beat.seconds * 1.1), value: developing)
         }
     }
 
     @ViewBuilder private func character(in r: CGRect) -> some View {
         if compact {
-            ClawdLoop(mood: mood, px: Self.smallPx).offset(x: r.minX, y: r.minY)
+            ClawdLoop(mood: mood, px: Self.smallPx, act: heroAct).offset(x: r.minX, y: r.minY)
+                .animation(Beat.morph, value: heroAct)
         } else {
             let w = ClawdSprite.size(px: Self.heroPx).width
-            ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow)
+            ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct)
+                .animation(Beat.morph, value: heroAct)
                 .scaleEffect(x: facingLeft ? -1 : 1)
                 .animation(Beat.morph, value: facingLeft)
                 .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
@@ -563,7 +641,7 @@ struct Hero: View {
     /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
     private var mood: Mood { s.mood }
     private var walks: Bool { mood == .working }
-    private var walkingNow: Bool { walks && position(at: tick) != position(at: tick - 1) }
+    private var walkingNow: Bool { heroAct == nil && walks && position(at: tick) != position(at: tick - 1) }
     private var facingLeft: Bool {
         guard walks else { return false }
         let c = ((tick % 12) + 12) % 12
@@ -761,6 +839,8 @@ struct PulseWidgetView: View {
         }
         .environment(\.pulseTick, entry.tick)
             .environment(\.heroImage, entry.heroImage)
+            .environment(\.heroAct, entry.act)
+            .environment(\.imageDeveloping, entry.developing)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)

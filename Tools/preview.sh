@@ -25,7 +25,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 cp App/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign -s - --force "$APP" >/dev/null 2>&1 || true
-if [[ "$1" == "--capture" || "$1" == "--frames" || "$1" == "--sheets" ]]; then
+if [[ "$1" == "--capture" || "$1" == "--frames" || "$1" == "--sheets" || "$1" == "--acts" ]]; then
   "$APP/Contents/MacOS/Keep Working Preview" "$@"
 else
   open "$APP"

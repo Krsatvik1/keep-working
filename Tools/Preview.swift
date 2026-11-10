@@ -45,6 +45,8 @@ final class PreviewModel: ObservableObject {
     @Published var playing = true
     /// Character mode: just the creature, every mood looping, at a chosen frame rate.
     @Published var character = true
+    /// The image-arrives options page (I), shown over everything else while on.
+    @Published var arrivals = true
     @Published var fps = 24
     @Published private(set) var sessions: [SessionSnapshot] = []
     private var timer: Timer?
@@ -108,7 +110,8 @@ struct PreviewRoot: View {
     @ObservedObject var model: PreviewModel
 
     var body: some View {
-        if model.character { CharacterGallery(model: model) } else { widgets }
+        if model.arrivals { ArrivalGallery(model: model) }
+        else if model.character { CharacterGallery(model: model) } else { widgets }
     }
 
     @ViewBuilder private var widgets: some View {
@@ -183,7 +186,8 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
             case 124: model.step(1); return nil                     // →
             case 49: model.playing.toggle(); return nil             // space
             case 2: model.dark.toggle(); return nil                 // D
-            case 8: model.character.toggle(); return nil            // C
+            case 8: model.arrivals = false; model.character.toggle(); return nil   // C
+            case 34: model.arrivals.toggle(); return nil            // I
             case 3: model.fps = [12, 24, 60].first { $0 > model.fps } ?? 12; return nil   // F
             default: return e
             }
@@ -191,6 +195,9 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--capture"), i + 1 < args.count {
             Task { await capture(to: args[i + 1]) }
+        }
+        if let i = args.firstIndex(of: "--acts"), i + 1 < args.count {
+            actSheets(to: args[i + 1]); NSApp.terminate(nil)
         }
         if let i = args.firstIndex(of: "--sheets"), i + 1 < args.count {
             sheets(to: args[i + 1]); NSApp.terminate(nil)
@@ -206,6 +213,24 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
         view.cacheDisplay(in: view.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+
+    /// Every frame of the three image-arrival acts at 24 fps, for filmstrips and review.
+    private func actSheets(to dir: String) {
+        for act in ClawdMotion.Act.allCases {
+            let sub = "\(dir)/\(act.rawValue)"
+            try? FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
+            for i in 0..<Int(ClawdMotion.actLength * 24) {
+                let view = ClawdSprite(mood: .working, t: Double(i) / 24, px: 6, act: act)
+                    .padding(8).background(Color(white: 0.17)).environment(\.colorScheme, .dark)
+                let r = ImageRenderer(content: view)
+                r.scale = 2
+                if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                    try? rep.representation(using: .png, properties: [:])?
+                        .write(to: URL(fileURLWithPath: String(format: "%@/f%03d.png", sub, i)))
+                }
+            }
+        }
     }
 
     /// Exact frames of every mood loop, rendered off-screen at 24 fps, for filmstrips and review.
@@ -248,6 +273,7 @@ final class PreviewDelegate: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         model.playing = false
         model.character = false
+        model.arrivals = false
         try? await Task.sleep(for: .seconds(1))
         for dark in [true, false] {
             model.dark = dark
@@ -405,5 +431,146 @@ struct CharacterGallery: View {
             }
             .offset(y: 4)
         }
+    }
+}
+
+
+// MARK: - Image arrives: three options
+
+/// Three ways the hero could greet a new image, each on a hero-sized card, looping: working, the image arrives
+/// and the character reacts, back to work with the image settled behind. Only moves the desktop can play are
+/// used: the act is a flip-book, and the image's entrance is one glide (fade, scale, offset or blur).
+struct ArrivalGallery: View {
+    @ObservedObject var model: PreviewModel
+
+    static let cycle = 12.0, actStart = 2.0
+    /// A real image from your sessions when there is one, so the options are judged on real material.
+    static let image: NSImage? = {
+        for s in ordered(SessionStore.load(limit: 10)) {
+            if let p = s.transcript, let d = SessionStore.lastImage(transcript: p), let img = NSImage(data: d) { return img }
+        }
+        return nil
+    }()
+
+    var body: some View {
+        TimelineView(.animation(paused: !model.playing)) { tl in
+            let now = tl.date.timeIntervalSinceReferenceDate
+            let fps = Double(model.fps)
+            let q = model.fps >= 60 ? now : (now * fps).rounded(.down) / fps
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                HStack(alignment: .top, spacing: 18) {
+                    option("A  Magnifier", "Image fades in; it inspects it through a glass", .magnify, now: now, q: q)
+                    option("B  Look up", "Image drops in; it startles, then reads it", .lookUp, now: now, q: q)
+                    option("C  Snapshot", "It takes the picture; the image develops", .snapshot, now: now, q: q)
+                }
+            }
+            .environment(\.colorScheme, model.dark ? .dark : .light)
+        }
+        .padding(22)
+        .background(LinearGradient(colors: [Color(red: 0.16, green: 0.43, blue: 0.45), Color(red: 0.10, green: 0.33, blue: 0.36)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing))
+        .fixedSize()
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("A new image arrives").font(.system(size: 20, weight: .semibold))
+                Text("Each card loops: working, the image comes in and it reacts, back to work. I: this page, C: character, F: frame rate.")
+                    .font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
+            }
+            Spacer()
+            Picker("", selection: $model.fps) {
+                Text("12 fps").tag(12); Text("24 fps").tag(24); Text("60 fps").tag(60)
+            }
+            .pickerStyle(.segmented).frame(width: 210)
+            Button(model.playing ? "Pause" : "Play") { model.playing.toggle() }
+            Button(model.dark ? "Light" : "Dark") { model.dark.toggle() }
+            Button("Character") { model.arrivals = false; model.character = true }
+        }
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func option(_ title: String, _ note: String, _ act: ClawdMotion.Act, now: Double, q: Double) -> some View {
+        let u = now.truncatingRemainder(dividingBy: Self.cycle)
+        let a = u - Self.actStart                     // seconds into the act
+        let inAct = a >= 0 && a < ClawdMotion.actLength
+        // On the desktop a mood change is a short crossfade between flip-books; same here.
+        let fadeIn = ClawdMotion.ramp(a, -0.3, 0.3), fadeOut = ClawdMotion.ramp(a, ClawdMotion.actLength - 0.3, ClawdMotion.actLength + 0.3)
+        let actOpacity = fadeIn - fadeOut
+        let qa = q.truncatingRemainder(dividingBy: Self.cycle) - Self.actStart
+        return VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.06))
+                background(act, a: a, u: u)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 7) {
+                        Circle().strokeBorder(Color.secondary, lineWidth: 2).frame(width: 12, height: 12)
+                        Text(inAct ? "Working · reading an image" : "Working · now").font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("macOS home widget for chat progress").font(.system(size: 17, weight: .semibold)).lineLimit(2)
+                    Spacer(minLength: 0)
+                    ZStack(alignment: .bottomLeading) {
+                        ClawdSprite(mood: .working, t: q, px: 4.5, walking: true).opacity(1 - actOpacity)
+                        ClawdSprite(mood: .working, t: max(0, min(ClawdMotion.actLength, qa)), px: 4.5, act: act).opacity(actOpacity)
+                    }
+                    .offset(x: 40)
+                    HStack(spacing: 4) {
+                        ForEach(0..<5, id: \.self) { i in
+                            Capsule().fill(Color.primary.opacity(i < 2 ? 0.55 : 0.15)).frame(height: 4)
+                        }
+                    }
+                    HStack { Text("portfolio_2"); Spacer(); Text("2 of 5 steps") }
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                }
+                .padding(16)
+            }
+            .frame(width: 300, height: 300)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(10)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(note).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+            }
+            .foregroundStyle(.white)
+        }
+    }
+
+    /// The image's entrance for each option. On the desktop each is a single glide at the entry change.
+    @ViewBuilder private func background(_ act: ClawdMotion.Act, a: Double, u: Double) -> some View {
+        let leaving = ClawdMotion.ramp(u, Self.cycle - 0.8, Self.cycle)   // reset before the next loop
+        let r = { (x: Double, b: Double, e: Double) in ClawdMotion.ramp(x, b, e) }
+        Group {
+            if let img = Self.image {
+                let base = Image(nsImage: img).resizable().scaledToFill()
+                switch act {
+                case .magnify:
+                    let k = r(a, 0.2, 1.1)
+                    Color.clear.overlay(base.scaleEffect(1.08 - 0.08 * k)).opacity(0.16 * k)
+                case .lookUp:
+                    let k = r(a, 0.0, 0.7)
+                    // A drop with a small overshoot, as a spring glide would give.
+                    let drop = 1 - k + 0.06 * sin(.pi * k)
+                    Color.clear.overlay(base.offset(y: -120 * drop)).opacity(0.16 * min(1, k * 2))
+                case .snapshot:
+                    let dev = r(a, 0.65, 2.2)
+                    ZStack {
+                        Color.clear.overlay(base.blur(radius: 6 * (1 - dev))).opacity(a < 0.65 ? 0 : 0.16 + 0.3 * (1 - dev))
+                        Color.white.opacity(a > 0.62 && a < 1.3 ? 0.35 * (1 - r(a, 0.62, 1.3)) : 0)
+                    }
+                }
+            } else {
+                Color.clear
+            }
+        }
+        .mask(LinearGradient(colors: [.black, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom))
+        .opacity(1 - leaving)
+        .allowsHitTesting(false)
     }
 }
