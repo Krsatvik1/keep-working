@@ -65,5 +65,16 @@ The animation tick runs live; space pauses it, D switches light/dark.
 `Tools/preview.sh --capture <dir>` saves every state at two ticks, light and dark, as PNGs of the window;
 `Tools/preview.sh --frames <state number> <dir>` saves 64 frames about 0.4 s apart (a full walk turn), to check motion.
 
-Motion: a widget only animates from one timeline entry to the next, so entries are 2 s apart and every
-animated value glides for the whole beat to its next keyframe (`Beat` in the widget file).
+It opens on the **Character** screen (C toggles back to the widget): every mood looping, the walk along a
+bar, a mood change, at 12/24/60 fps (F). `Tools/preview.sh --sheets <dir>` renders every loop frame by frame.
+
+Motion, and what macOS allows (all found by testing on the desktop):
+- A widget only animates from one timeline entry to the next, one plain glide per entry. Repeats, delays,
+  keyframes and phase animations inside an entry are ignored. Entries are 2 s apart (`Beat`); travel along the
+  bar, the glow and the ring use those glides.
+- The character loops on its own: `Widget/ClawdMotion.swift` draws each mood as a pure function of time, cut
+  into a seamless flip-book. WidgetKit's clock-hand rotation (private, built from its archived form in
+  `ClockSpin`) spins a mask that shows one frame at a time. If a macOS update removes it, the character holds still.
+- Every entry carries every flip-book frame, and macOS rejects a timeline archive over a few MB (38 MB failed;
+  ~5 MB passes) and kills a build over ~30 s. So the timeline is 20 entries; the app reloads it on every change.
+- Nothing may sit over a widget `Link` or the click is lost, so the hero's card and character are drawn behind it.
