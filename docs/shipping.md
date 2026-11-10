@@ -35,9 +35,10 @@ Most work for the weakest result. Not recommended.
 
 ## Decision (11 Nov 2026)
 
-- **Name: Keep Working.** It means "underway", and the character is literally on foot. No app or repo by that name
-  turned up in this niche (Claude Status, Clyde, HexDeck, Claude Visor, ClaudeDot already exist; the walking
-  character is the difference). Bundle ids `xyz.krsatvik.KeepWorking`, link scheme `keepworking://`.
+- **Name: Keep Working** (Satvik's pick, after Afoot and a pool of single words were turned down as too generic).
+  It is what the widget does, and close to what builders type when an agent stalls ("keep going", "continue").
+  Plain words any designer or builder recognises; the app's copy should talk the same way. Bundle ids
+  `xyz.krsatvik.KeepWorking`, link scheme `keepworking://`, repo `Krsatvik1/keep-working` (private).
 - **Route: direct download from GitHub, private for now.** No Apple Developer account, so no Developer ID and
   no notarization. Consequences to solve before sharing:
   - People must allow it in System Settings → Privacy & Security (or `xattr -dr com.apple.quarantine`) on first run.
