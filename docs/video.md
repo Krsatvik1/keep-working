@@ -45,3 +45,21 @@ Terminal alternative to steps 2–3: `xattr -dr com.apple.quarantine "/Applicati
 
 Untested: whether the widget extension loads on another Mac with this Mac's development signature. If it
 doesn't, the fallback is building from source with the user's own free Apple ID.
+
+## Cut 3 (11 Nov): how it is made, and the story as cut
+
+The film is rendered, not recorded: `Tools/film.sh out.mp4` draws every frame from the widget's own views
+(`Tools/Film.swift`), so the widget is exact. The chat window is a plain stand-in, not the Claude app; its
+session list and marks are the widget's. About 39 s:
+
+1. Asleep, close on the character. A pointer clicks "open in Claude".
+2. Chat: the prompt is typed and sent; the five steps appear.
+3. Back to the widget: it wakes, walks the steps (one jump cut), snaps a new image.
+4. Needs you. Click "answer in Claude".
+5. Chat: one click on an answer.
+6. Back: done, the jump and spin. Click the card.
+7. Chat: the reply writes itself in, with the redesign it made.
+8. Four sizes at one scale, then the end card.
+
+Still open: music (Google Flow needs Satvik to accept its privacy notice first), and the install shot
+(waits for the second-Mac test).
