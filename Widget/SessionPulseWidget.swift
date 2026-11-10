@@ -132,7 +132,7 @@ struct CompactRow: View {
                     .foregroundStyle(s.isQuiet ? .secondary : .primary)
                     .lineLimit(1)
                 Spacer(minLength: 6)
-                Text(s.trailing)
+                Text(s.trailing).contentTransition(.numericText())
                     .font(.system(size: 10.5))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -164,7 +164,7 @@ struct DetailRow: View {
                             .foregroundStyle(s.isQuiet ? .secondary : .primary)
                             .lineLimit(1)
                         Spacer(minLength: 6)
-                        Text(s.trailing).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(.secondary)
+                        Text(s.trailing).contentTransition(.numericText()).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(.secondary)
                     }
                     Text(s.subline)
                         .font(.system(size: 11))
@@ -188,7 +188,7 @@ struct Header: View {
         HStack(alignment: .firstTextBaseline) {
             Text("Claude sessions").font(.system(size: 13, weight: .semibold))
             Spacer()
-            summary(running: running, waiting: waiting).font(.system(size: 11))
+            summary(running: running, waiting: waiting).font(.system(size: 11)).contentTransition(.numericText())
         }
     }
 
@@ -212,7 +212,7 @@ struct OpenLink<Content: View>: View {
         #if RENDER_HARNESS
         content
         #else
-        Link(destination: url) { content }
+        Link(destination: PulseLink.wrap(url)) { content }
         #endif
     }
 }
@@ -265,7 +265,7 @@ struct PulseWidgetView: View {
                 .frame(maxHeight: .infinity)
             }
         }
-        .widgetURL(ordered.first?.url)
+        .widgetURL(ordered.first.map { PulseLink.wrap($0.url) })
     }
 
     private var medium: some View {

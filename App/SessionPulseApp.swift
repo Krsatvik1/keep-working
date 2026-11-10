@@ -8,6 +8,7 @@ import WidgetKit
 /// so progress moves within seconds instead of on WidgetKit's own slow schedule.
 @main
 struct SessionPulseApp: App {
+    @NSApplicationDelegateAdaptor(PulseAppDelegate.self) private var delegate
     @StateObject private var model = PulseModel()
 
     var body: some Scene {
@@ -15,6 +16,15 @@ struct SessionPulseApp: App {
             MenuContent(model: model)
         } label: {
             Image(systemName: model.running > 0 ? "circle.circle.fill" : "circle.circle")
+        }
+    }
+}
+
+/// Receives widget clicks (sessionpulse://open?to=…) and opens the session in Claude.
+final class PulseAppDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if let target = PulseLink.unwrap(url) { NSWorkspace.shared.open(target) }
         }
     }
 }

@@ -26,6 +26,9 @@ targets:
         CFBundleName: Session Pulse
         LSUIElement: true
         LSApplicationCategoryType: public.app-category.developer-tools
+        CFBundleURLTypes:
+          - CFBundleURLName: xyz.krsatvik.SessionPulse
+            CFBundleURLSchemes: [sessionpulse]
     entitlements:
       path: App/App.entitlements
       properties: {}
