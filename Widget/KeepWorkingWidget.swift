@@ -15,7 +15,7 @@ struct PulseEntry: TimelineEntry {
     var heroImage: Data? = nil
     /// Set on the entries during which the hero reacts to a new image (it takes a snapshot).
     var act: ClawdMotion.Act? = nil
-    /// The first beat of that act: the new image is still bright and soft, just "developed".
+    /// The moment of the flash: the new image is bright and soft, just "developed".
     var developing = false
     /// The beat the act started on. The walker holds the spot it had then until the act is over.
     var actTick: Int? = nil
@@ -97,19 +97,30 @@ struct PulseProvider: TimelineProvider {
             return PulseEntry(date: Date(timeIntervalSince1970: t), sessions: base.sessions, error: base.error,
                               tick: Int(t / beat), heroImage: base.heroImage)
         }
-        // A new image in the hero session: keep the old one until the act, then snapshot it in.
+        // A new image in the hero session: the old one stays until the camera's flash, 0.6 s into the act.
+        // The flash and the settle get an entry each, off the beat, so the wash lasts a moment, not a whole beat.
         if let arrival = ImageArrival.note(session: ordered(base.sessions).first?.id, image: base.heroImage, now: base.date) {
             let end = arrival.start.addingTimeInterval(ClawdMotion.actLength)
+            let flash = arrival.start.addingTimeInterval(0.6), settle = arrival.start.addingTimeInterval(1.0)
+            let actTick = Int(arrival.start.timeIntervalSince1970 / beat)
+            let newImage = base.heroImage
             func stage(_ e: inout PulseEntry) {
-                if e.date < arrival.start { e.heroImage = arrival.previous }
-                else if e.date < end {
+                if e.date < flash { e.heroImage = arrival.previous }
+                if e.date >= arrival.start && e.date < end {
                     e.act = .snapshot
-                    e.actTick = Int(arrival.start.timeIntervalSince1970 / beat)
-                    e.developing = e.date < arrival.start.addingTimeInterval(beat)
+                    e.actTick = actTick
+                    e.developing = e.date >= flash && e.date < settle
                 }
             }
             stage(&base)
             for i in entries.indices { stage(&entries[i]) }
+            for date in [flash, settle] where date > base.date {
+                var e = PulseEntry(date: date, sessions: base.sessions, error: base.error,
+                                   tick: Int(date.timeIntervalSince1970 / beat), heroImage: newImage)
+                stage(&e)
+                entries.append(e)
+            }
+            entries.sort { $0.date < $1.date }
         }
         // The menu-bar app also nudges a reload whenever a session file changes.
         completion(Timeline(entries: [base] + entries, policy: .after(entries.last!.date)))
@@ -578,7 +589,8 @@ struct Hero: View {
                     .opacity(s.state == .waiting ? Glide.pulse(film, tick) : 0)
             }
             .animation(Beat.ease, value: tick)
-            .animation(.easeOut(duration: Beat.seconds * 1.1), value: developing)
+            // The flash comes up fast and dies away slowly.
+            .animation(.easeOut(duration: developing ? 0.2 : 1.4), value: developing)
         }
     }
 

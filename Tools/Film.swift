@@ -23,7 +23,9 @@ enum Script {
         var act: ClawdMotion.Act? = nil
         var actTick: Int? = nil
         var image: Data? = nil
-        /// What a viewer could tell apart; a change of signature gets a short crossfade, as on the desktop.
+        /// The hero's state: a change of state swaps the whole layout.
+        var state: SessionState = .idle
+        /// What a viewer could tell apart from one entry to the next.
         var signature: String
     }
 
@@ -78,34 +80,46 @@ enum Script {
             session("brief", "Competitor research brief", "Cowork", .cowork, ago: 90_000),
             session("dark", "Dark mode polish", "acme-app", ago: 180_000),
         ]
-        let sig = "\(star.state)|\(star.stepsDone)|\(star.detail ?? "")|\(act != nil)|\(image != nil)|\(loginState)"
-        return Moment(sessions: [star] + others, act: act, actTick: act == nil ? nil : 6, image: image, signature: sig)
+        let sig = "\(star.state)|\(star.stepsDone)|\(star.detail ?? "")|\(loginState)"
+        return Moment(sessions: [star] + others, act: act, actTick: act == nil ? nil : 6, image: image,
+                      state: star.state, signature: sig)
     }
 
-    /// How freshly snapped the image is: bright and soft for the act's first beat, then it settles.
+    /// The snapshot's flash, as the widget's timeline plays it: the old picture until 0.6 s into the act, the new
+    /// one flashes in bright and soft, and from 1.0 s it settles over 1.4 s. 1 just snapped … 0 settled.
+    static let actStart = 12.0
     static func develop(_ t: Double) -> Double? {
-        let a = t - 12
-        guard a >= 0, a < 4.4 else { return nil }
-        if a < 2 { return 1 }
-        let k = min(1, (a - 2) / 2.2)
+        let a = t - actStart
+        guard a >= 0.6, a < 2.5 else { return nil }
+        if a < 0.8 { let k = (a - 0.6) / 0.2; return 1 - (1 - k) * (1 - k) }
+        if a < 1.0 { return 1 }
+        let k = min(1, (a - 1.0) / 1.4)
         return (1 - k) * (1 - k)
     }
+    /// The new image isn't behind the card until the flash.
+    static func imageShown(_ t: Double) -> Bool { !(t >= actStart && t < actStart + 0.6) }
 
     static let captions: [(from: Double, to: Double, text: String)] = [
-        (0.3, 3.6, "Prompt Claude, then go do something else."),
-        (4.3, 11.5, "It keeps working."),
-        (12.4, 17.4, "New image? Snap."),
+        (0.5, 3.5, "Prompt Claude. Go do something else."),
+        (4.2, 6.0, "It keeps working."),
+        (7.7, 11.6, "Step by step."),
+        (12.3, 17.4, "It snaps each new image."),
         (18.5, 21.5, "It waves when Claude needs you."),
-        (21.9, 23.8, "One click back."),
-        (24.3, 27.6, "Done."),
-        (28.2, 31.7, "Four sizes."),
+        (21.9, 24.3, "One click back."),
+        (24.6, 27.7, "Done."),
+        (28.2, 31.5, "Four sizes."),
     ]
 
-    /// Camera on the extra-large widget: (time, scale, focus x in widget points from its centre).
-    static let camera: [(Double, Double, Double)] = [
-        (0, 2.0, 0), (2.0, 2.0, 0), (3.3, 2.5, -191), (12.0, 2.56, -191), (12.9, 2.7, -191), (17.5, 2.7, -191),
-        (18.7, 2.0, 0), (23.999, 2.04, 0), (24.0, 2.5, -191), (28.0, 2.62, -191),
+    /// Camera on the extra-large widget: (clock, scale, focus x, focus y), focus in widget points from its centre.
+    static let camera: [(Double, Double, Double, Double)] = [
+        (1.0, 3.3, -262, 62), (2.0, 3.3, -262, 62), (3.4, 2.3, -191, 0), (6.0, 2.36, -172, 0), (8.0, 2.36, -172, 0),
+        (12.0, 2.42, -150, 0), (12.5, 2.8, -128, 14), (13.5, 2.8, -128, 14), (14.4, 2.4, -191, 0), (17.5, 2.46, -191, 0),
+        (18.7, 1.9, 0, 0), (23.15, 1.9, 0, 0), (23.8, 2.3, -191, 0), (28.0, 2.4, -191, 0),
     ]
+
+    /// The cut: which stretches of the clock make the film. It opens a second before the prompt lands, and
+    /// jumps one beat of the walk.
+    static let cut: [(Double, Double)] = [(1.0, 6.0), (8.0, 36.0)]
 }
 
 enum Assets {
@@ -159,19 +173,20 @@ struct FilmFrame: View {
     static let ink = Color(red: 0.105, green: 0.094, blue: 0.086)
     static let paperTop = Color(red: 0.949, green: 0.925, blue: 0.886)
     static let paperBottom = Color(red: 0.894, green: 0.855, blue: 0.804)
-    /// The widget sits a little above centre, leaving the bottom of the frame for captions.
-    static let stage = CGPoint(x: 960, y: 478)
+    /// The widget sits above centre, leaving the bottom of the frame for captions.
+    static let stage = CGPoint(x: 960, y: 430)
 
     private var tick: Int { Int((t / Beat.seconds).rounded(.down)) }
 
     var body: some View {
         ZStack {
             LinearGradient(colors: [Self.paperTop, Self.paperBottom], startPoint: .top, endPoint: .bottom)
-            if t < 28 { story } else if t < 32 { sizes }
+            if t < 28.15 { story.opacity(1 - ramp(t, 28.0, 28.15)) }
+            if t >= 28 && t < 32.1 { sizes }
             // Captions always sit on paper, never on the widget.
-            LinearGradient(colors: [Self.paperBottom.opacity(0), Self.paperBottom], startPoint: .top, endPoint: .bottom)
-                .frame(height: 170).position(x: 960, y: 1080 - 85)
-                .opacity(t < 32 ? 1 : 0)
+            LinearGradient(colors: [Self.paperBottom.opacity(0), Self.paperBottom, Self.paperBottom],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 290).position(x: 960, y: 1080 - 145)
             caption
             cursor
             if t >= 31.6 { endCard.opacity(ramp(t, 31.6, 32.1)) }
@@ -183,11 +198,12 @@ struct FilmFrame: View {
     // MARK: Widget
 
     private func tile(_ m: Script.Moment, _ family: WidgetFamily, _ size: CGSize) -> some View {
-        let entry = PulseEntry(date: .now, sessions: m.sessions, error: nil, tick: tick, heroImage: m.image,
+        let image = Script.imageShown(t) ? m.image : nil
+        let entry = PulseEntry(date: .now, sessions: m.sessions, error: nil, tick: tick, heroImage: image,
                                act: m.act, developing: false, actTick: m.actTick)
         return PulseWidgetView(entry: entry, forcedFamily: family)
             .environment(\.filmTime, t)
-            .environment(\.developAmount, m.image == nil ? nil : Script.develop(t))
+            .environment(\.developAmount, image == nil ? nil : Script.develop(t))
             .padding(16)
             .frame(width: size.width, height: size.height)
             .environment(\.colorScheme, .dark)
@@ -206,14 +222,28 @@ struct FilmFrame: View {
         .shadow(color: .black.opacity(0.30), radius: 26, y: 16)
     }
 
-    /// An entry change crossfades for half a second, as the desktop does between timeline entries.
+    /// An entry change, as the desktop shows it. A new state swaps cleanly: the old content is out in five
+    /// frames and the new in over the next five, so two layouts never show at once. A new step only changes a
+    /// line of text, so the two entries add up to one image and just that line dissolves.
     private func widget(_ family: WidgetFamily, _ size: CGSize) -> some View {
         let now = Script.moment(tick), before = Script.moment(tick - 1)
         let into = t - Double(tick) * Beat.seconds
-        let k = now.signature == before.signature ? 1 : ramp(into, 0, 0.5)
+        let changed = now.signature != before.signature
+        let swap = now.state != before.state
         return chrome(size) {
-            if k < 1 { tile(before, family, size).opacity(1 - k) }
-            tile(now, family, size).opacity(k)
+            if !changed || into >= (swap ? 0.17 : 0.35) {
+                tile(now, family, size)
+            } else if swap {
+                if into < 0.085 { tile(before, family, size).opacity(1 - into / 0.085) }
+                else { tile(now, family, size).opacity((into - 0.085) / 0.085) }
+            } else {
+                let k = ease(into / 0.35)
+                ZStack {
+                    tile(before, family, size).opacity(1 - k)
+                    tile(now, family, size).opacity(k).blendMode(.plusLighter)
+                }
+                .compositingGroup()
+            }
         }
     }
 
@@ -221,31 +251,45 @@ struct FilmFrame: View {
         let cam = camera
         return widget(.systemExtraLarge, CGSize(width: 704, height: 344))
             .scaleEffect(cam.scale)
-            .position(x: Self.stage.x - cam.focus * cam.scale, y: Self.stage.y)
+            .position(x: Self.stage.x - cam.fx * cam.scale, y: Self.stage.y - cam.fy * cam.scale)
     }
 
-    private var camera: (scale: Double, focus: Double) {
+    private var camera: (scale: Double, fx: Double, fy: Double) {
         let keys = Script.camera
-        guard let j = keys.firstIndex(where: { $0.0 > t }), j > 0 else { let l = keys.last!; return (l.1, l.2) }
+        guard let j = keys.firstIndex(where: { $0.0 > t }) else { let l = keys.last!; return (l.1, l.2, l.3) }
+        guard j > 0 else { let f = keys[0]; return (f.1, f.2, f.3) }
         let a = keys[j - 1], b = keys[j]
         let k = ease((t - a.0) / (b.0 - a.0))
-        return (a.1 + (b.1 - a.1) * k, a.2 + (b.2 - a.2) * k)
+        return (a.1 + (b.1 - a.1) * k, a.2 + (b.2 - a.2) * k, a.3 + (b.3 - a.3) * k)
     }
 
-    /// Four sizes, one a second, each popping in on the cut.
+    /// The four sizes at one scale, so their real proportions show: one at a time, each swapping into the
+    /// next over eight frames, then all four together.
     private var sizes: some View {
-        let i = min(3, Int(t - 28))
-        let into = t - 28 - Double(i)
-        let all: [(WidgetFamily, CGSize, Double)] = [
-            (.systemSmall, CGSize(width: 164, height: 164), 3.9), (.systemMedium, CGSize(width: 344, height: 164), 3.0),
-            (.systemLarge, CGSize(width: 344, height: 344), 2.05), (.systemExtraLarge, CGSize(width: 704, height: 344), 2.0),
+        let all: [(WidgetFamily, CGSize)] = [
+            (.systemSmall, CGSize(width: 164, height: 164)), (.systemMedium, CGSize(width: 344, height: 164)),
+            (.systemLarge, CGSize(width: 344, height: 344)), (.systemExtraLarge, CGSize(width: 704, height: 344)),
         ]
-        let (family, size, scale) = all[i]
         let m = Script.moment(tick)
-        return chrome(size) { tile(m, family, size) }
-            .scaleEffect(scale * (0.94 + 0.06 * ramp(into, 0, 0.16)))
-            .opacity(ramp(into, 0, 0.08))
-            .position(Self.stage)
+        let step = 0.62, first = 28.05, together = first + 4 * step
+        return ZStack {
+            ForEach(0..<4, id: \.self) { i in
+                let start = first + step * Double(i), end = i == 3 ? together : start + step
+                if t >= start - 0.02 && t < end + 0.14 {
+                    chrome(all[i].1) { tile(m, all[i].0, all[i].1) }
+                        .scaleEffect(2.0 * (0.94 + 0.06 * ramp(t, start, start + 0.2)))
+                        .opacity(ramp(t, start, start + 0.13) * (1 - ramp(t, end, end + 0.13)))
+                }
+            }
+            if t >= together {
+                HStack(alignment: .center, spacing: 22) {
+                    ForEach(0..<4, id: \.self) { i in chrome(all[i].1) { tile(m, all[i].0, all[i].1) } }
+                }
+                .scaleEffect(1.1 * (0.96 + 0.04 * ramp(t, together, together + 0.25)))
+                .opacity(ramp(t, together, together + 0.13))
+            }
+        }
+        .position(Self.stage)
     }
 
     // MARK: Captions, cursor, end card
@@ -255,35 +299,38 @@ struct FilmFrame: View {
             if t >= c.from && t < c.to {
                 let k = ramp(t, c.from, c.from + 0.3) * (1 - ramp(t, c.to - 0.25, c.to))
                 Text(c.text)
-                    .font(.system(size: 46, weight: .semibold))
-                    .tracking(-0.9)
+                    .font(.system(size: 68, weight: .semibold))
+                    .tracking(-1.1)
                     .foregroundStyle(Self.ink)
                     .opacity(k)
-                    .position(x: 960, y: 1000 + 14 * (1 - ramp(t, c.from, c.from + 0.3)))
+                    .position(x: 960, y: 912 + 16 * (1 - ramp(t, c.from, c.from + 0.3)))
             }
         }
     }
 
-    /// A pointer comes in, clicks the hero card, and the film cuts.
+    /// A pointer comes in and clicks "answer in Claude"; the camera then pushes in as the session finishes.
     @ViewBuilder private var cursor: some View {
-        if t >= 21.7 && t < 24 {
-            let k = ramp(t, 21.7, 22.9)
-            let from = CGPoint(x: 1480, y: 1140), to = CGPoint(x: 640, y: 600)
-            let p = CGPoint(x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k - 80 * sin(.pi * k))
-            let click = t - 23.2
+        if t >= 21.7 && t < 23.6 {
+            let k = ramp(t, 21.7, 22.75)
+            let from = CGPoint(x: 1500, y: 1130), to = CGPoint(x: 766, y: 683)
+            let p = CGPoint(x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k - 70 * sin(.pi * k))
+            let click = t - 23.0
             ZStack {
                 if click >= 0 && click < 0.45 {
-                    Circle().strokeBorder(Self.ink.opacity(0.5 * (1 - click / 0.45)), lineWidth: 3)
-                        .frame(width: 30 + 110 * ease(click / 0.45), height: 30 + 110 * ease(click / 0.45))
+                    let g = ease(click / 0.45)
+                    Circle().strokeBorder(Color.white.opacity(0.95 * (1 - g)), lineWidth: 4)
+                        .frame(width: 24 + 120 * g, height: 24 + 120 * g)
                         .position(p)
+                    Circle().fill(Color.white.opacity(0.35 * (1 - g))).frame(width: 40, height: 40).position(p)
                 }
                 Pointer().fill(Color.black)
                     .overlay(Pointer().stroke(Color.white, style: StrokeStyle(lineWidth: 1.6, lineJoin: .round)))
                     .frame(width: 13, height: 20)
-                    .scaleEffect(2.3 * (click >= 0 && click < 0.14 ? 0.88 : 1), anchor: .topLeading)
+                    .scaleEffect(2.5 * (click >= 0 && click < 0.14 ? 0.86 : 1), anchor: .topLeading)
                     .shadow(color: .black.opacity(0.3), radius: 3, y: 2)
                     .position(x: p.x + 6.5, y: p.y + 10)
             }
+            .opacity(1 - ramp(t, 23.3, 23.55))
         }
     }
 
@@ -298,27 +345,29 @@ struct FilmFrame: View {
         }
     }
 
+    /// The character trots on, under the name.
     private var endCard: some View {
         let rise = { (d: Double) in 18 * (1 - ramp(t, 32.0 + d, 32.5 + d)) }
         let show = { (d: Double) in ramp(t, 32.0 + d, 32.5 + d) }
+        let fps = ClawdMotion.fps(.working)
         return ZStack {
             LinearGradient(colors: [Self.paperTop, Self.paperBottom], startPoint: .top, endPoint: .bottom)
             VStack(spacing: 0) {
-                if let icon = Assets.icon {
-                    Image(nsImage: icon).resizable().interpolation(.high).frame(width: 210, height: 210)
-                        .opacity(show(0)).offset(y: rise(0))
-                }
+                ClawdSprite(mood: .working, t: (t * fps).rounded(.down) / fps, px: 15, walking: true)
+                    .environment(\.colorScheme, .light)
+                    .frame(height: 240, alignment: .bottom)
+                    .opacity(show(0)).offset(y: rise(0))
                 Text("Keep Working")
-                    .font(.system(size: 96, weight: .bold)).tracking(-3.2).foregroundStyle(Self.ink)
-                    .padding(.top, 18).opacity(show(0.12)).offset(y: rise(0.12))
+                    .font(.system(size: 124, weight: .bold)).tracking(-4.6).foregroundStyle(Self.ink)
+                    .padding(.top, 26).opacity(show(0.12)).offset(y: rise(0.12))
                 Text("A desktop widget for your Claude sessions.")
-                    .font(.system(size: 36, weight: .regular)).tracking(-0.5).foregroundStyle(Self.ink.opacity(0.62))
-                    .padding(.top, 14).opacity(show(0.24)).offset(y: rise(0.24))
+                    .font(.system(size: 46, weight: .regular)).tracking(-0.9).foregroundStyle(Self.ink.opacity(0.62))
+                    .padding(.top, 12).opacity(show(0.24)).offset(y: rise(0.24))
                 Text("github.com/Krsatvik1/keep-working")
-                    .font(.system(size: 27, weight: .medium)).tracking(-0.2).foregroundStyle(Self.ink.opacity(0.42))
-                    .padding(.top, 44).opacity(show(0.4)).offset(y: rise(0.4))
+                    .font(.system(size: 36, weight: .medium)).tracking(-0.5).foregroundStyle(Self.ink.opacity(0.45))
+                    .padding(.top, 52).opacity(show(0.4)).offset(y: rise(0.4))
             }
-            .offset(y: -20)
+            .offset(y: -10)
         }
     }
 }
@@ -337,8 +386,9 @@ enum FilmMain {
             return
         }
         guard let out = args.first else { print("usage: film out.mp4 [from to] | --still t out.png"); return }
-        let from = args.count > 2 ? Double(args[1]) ?? 0 : 0
-        let to = args.count > 2 ? Double(args[2]) ?? Script.length : Script.length
+        // The whole cut, or one stretch of the clock when given.
+        let stretches: [(Double, Double)] = args.count > 2
+            ? [(Double(args[1]) ?? 0, Double(args[2]) ?? Script.length)] : Script.cut
         let w = Int(Script.size.width), h = Int(Script.size.height)
 
         let ffmpeg = Process()
@@ -353,16 +403,18 @@ enum FilmMain {
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let info = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space, bitmapInfo: info)!
-        let first = Int(from * Double(Script.fps)), last = Int(to * Double(Script.fps))
-        let started = Date()
-        for i in first..<last {
-            autoreleasepool {
-                guard let cg = frame(Double(i) / Double(Script.fps)) else { return }
-                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-                pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 4, deallocator: .none))
+        var written = 0
+        for (from, to) in stretches {
+            for i in Int((from * Double(Script.fps)).rounded())..<Int((to * Double(Script.fps)).rounded()) {
+                autoreleasepool {
+                    guard let cg = frame(Double(i) / Double(Script.fps)) else { return }
+                    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+                    pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 4, deallocator: .none))
+                }
+                written += 1
             }
-            if (i - first) % 120 == 0 { print("frame \(i - first)/\(last - first)  \(Int(Date().timeIntervalSince(started))) s") }
         }
+        print("\(written) frames, \(Double(written) / Double(Script.fps)) s")
         try? pipe.fileHandleForWriting.close()
         ffmpeg.waitUntilExit()
         print("wrote \(out)")
