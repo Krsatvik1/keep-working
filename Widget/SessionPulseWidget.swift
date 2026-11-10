@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WidgetKit
+import AppIntents
 
 // MARK: - Timeline
 
@@ -215,7 +216,29 @@ struct StepSegments: View {
 // MARK: - The character (the Claude Code block creature)
 
 /// What the character is doing; one per session state.
-enum Mood: Hashable { case working, waiting, done, resting, sleeping }
+enum Mood: String, Hashable { case working, waiting, done, resting, sleeping }
+
+/// A button on the hero steps the character through every mood, to see each animation on the desktop.
+/// Off shows the real session's mood. Kept in the extension's own defaults: the button's intent and the
+/// timeline both run in the widget process.
+enum DemoMood {
+    static let order: [Mood?] = [nil, .working, .waiting, .done, .resting, .sleeping]
+    static var current: Mood? {
+        UserDefaults.standard.string(forKey: "demoMood").flatMap(Mood.init(rawValue:))
+    }
+    static func next() {
+        let i = order.firstIndex(of: current) ?? 0
+        UserDefaults.standard.set(order[(i + 1) % order.count]?.rawValue, forKey: "demoMood")
+    }
+}
+
+struct NextAnimation: AppIntent {
+    static let title: LocalizedStringResource = "Show the next character animation"
+    func perform() async throws -> some IntentResult {
+        DemoMood.next()
+        return .result()
+    }
+}
 
 extension SessionSnapshot {
     var mood: Mood {
@@ -424,6 +447,29 @@ struct Hero: View {
                 }
             }
         }
+        .overlay(alignment: .topTrailing) { if !compact { demoButton } }
+    }
+
+    /// Steps the character through every animation. A real button, so it takes its own click and leaves the
+    /// rest of the card to the link.
+    private var demoButton: some View {
+        let label = HStack(spacing: 4) {
+            Image(systemName: DemoMood.current == nil ? "play.fill" : "forward.fill")
+            if let m = DemoMood.current { Text(m.rawValue) }
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 7).padding(.vertical, 4)
+        .background(Color.primary.opacity(0.08), in: Capsule())
+        return Group {
+            #if RENDER_HARNESS
+            Button { DemoMood.next() } label: { label }
+            #else
+            Button(intent: NextAnimation()) { label }
+            #endif
+        }
+        .buttonStyle(.plain)
+        .padding(10)
     }
 
     @ViewBuilder private var card: some View {
@@ -442,10 +488,10 @@ struct Hero: View {
 
     @ViewBuilder private func character(in r: CGRect) -> some View {
         if compact {
-            ClawdLoop(mood: s.mood, px: Self.smallPx).offset(x: r.minX, y: r.minY)
+            ClawdLoop(mood: mood, px: Self.smallPx).offset(x: r.minX, y: r.minY)
         } else {
             let w = ClawdSprite.size(px: Self.heroPx).width
-            ClawdLoop(mood: s.mood, px: Self.heroPx, walking: walkingNow)
+            ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow)
                 .scaleEffect(x: facingLeft ? -1 : 1)
                 .animation(Beat.morph, value: facingLeft)
                 .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
@@ -540,7 +586,9 @@ struct Hero: View {
 
     /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
     /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
-    private var walks: Bool { s.mood == .working }
+    /// The real session's mood, unless the demo button has picked one.
+    private var mood: Mood { DemoMood.current ?? s.mood }
+    private var walks: Bool { mood == .working }
     private var walkingNow: Bool { walks && position(at: tick) != position(at: tick - 1) }
     private var facingLeft: Bool {
         guard walks else { return false }
