@@ -1,0 +1,62 @@
+name: SessionPulse
+options:
+  bundleIdPrefix: xyz.krsatvik
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: NO
+    GENERATE_INFOPLIST_FILE: NO
+targets:
+  SessionPulse:
+    type: application
+    platform: macOS
+    sources: [App, Shared]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Session Pulse
+        CFBundleName: Session Pulse
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.developer-tools
+    entitlements:
+      path: App/App.entitlements
+      properties: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.SessionPulse
+        PRODUCT_NAME: Session Pulse
+    dependencies:
+      - target: SessionPulseWidget
+  SessionPulseWidget:
+    type: app-extension
+    platform: macOS
+    sources: [Widget, Shared]
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Session Pulse
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widget/Widget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.claude/
+          - /Library/Application Support/Claude/
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.SessionPulse.Widget
+        PRODUCT_NAME: SessionPulseWidget
+        SKIP_INSTALL: YES
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
