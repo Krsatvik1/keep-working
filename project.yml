@@ -26,6 +26,7 @@ targets:
         CFBundleName: Session Pulse
         LSUIElement: true
         LSApplicationCategoryType: public.app-category.developer-tools
+        CFBundleIconFile: AppIcon
         CFBundleURLTypes:
           - CFBundleURLName: xyz.krsatvik.SessionPulse
             CFBundleURLSchemes: [sessionpulse]
@@ -36,6 +37,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.SessionPulse
         PRODUCT_NAME: Session Pulse
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    preBuildScripts:
+      # The Claude logo comes from the installed Claude app at build time; it is never committed here.
+      - name: Claude logo
+        basedOnDependencyAnalysis: false
+        script: |
+          R=/Applications/Claude.app/Contents/Resources
+          D="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          mkdir -p "$D"
+          cp "$R/electron.icns" "$D/AppIcon.icns" || echo "warning: Claude.app icon not found"
+          cp "$R"/TrayIconTemplate*.png "$D/" || echo "warning: Claude.app menu-bar icon not found"
     dependencies:
       - target: SessionPulseWidget
   SessionPulseWidget:

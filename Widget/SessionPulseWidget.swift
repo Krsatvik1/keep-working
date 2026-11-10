@@ -8,8 +8,13 @@ struct PulseEntry: TimelineEntry {
     let date: Date
     let sessions: [SessionSnapshot]
     let error: String?
+    /// Counts up between entries; poses, pulses and the spinning ring animate from one value to the next.
+    var tick = 0
 }
 
+/// A widget can't loop an animation. It can only animate from one timeline entry to the next, so the
+/// timeline is a run of identical entries a beat apart: quick while something is working or waiting,
+/// slow (the lazy idle) otherwise.
 struct PulseProvider: TimelineProvider {
     func placeholder(in context: Context) -> PulseEntry {
         PulseEntry(date: .now, sessions: SessionSnapshot.samples, error: nil)
@@ -20,15 +25,31 @@ struct PulseProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PulseEntry>) -> Void) {
-        let entry = load()
-        let busy = entry.sessions.contains { $0.state == .running }
-        // The menu-bar app nudges a reload whenever a session file changes; this is only the fallback.
-        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(busy ? 60 : 300))))
+        let base = load()
+        let lively = base.sessions.contains { $0.isActive }
+        let beat: TimeInterval = lively ? 2 : 5
+        let count = 60                        // 2 minutes busy, 5 minutes idle
+        let start = (base.date.timeIntervalSince1970 / beat).rounded(.up) * beat
+        let entries = (0..<count).map { i -> PulseEntry in
+            let t = start + Double(i) * beat
+            return PulseEntry(date: Date(timeIntervalSince1970: t), sessions: base.sessions, error: base.error,
+                              tick: Int(t / beat))
+        }
+        // The menu-bar app also nudges a reload whenever a session file changes.
+        completion(Timeline(entries: [base] + entries, policy: .after(entries.last!.date)))
     }
 
     private func load() -> PulseEntry {
         let sessions = SessionStore.load(limit: 10)
         return PulseEntry(date: .now, sessions: sessions, error: sessions.isEmpty ? SessionStore.lastError : nil)
+    }
+}
+
+private struct TickKey: EnvironmentKey { static let defaultValue = 0 }
+extension EnvironmentValues {
+    var pulseTick: Int {
+        get { self[TickKey.self] }
+        set { self[TickKey.self] = newValue }
     }
 }
 
@@ -102,6 +123,7 @@ extension SessionKind {
 
 /// The 16pt mark in front of a list row. Each state differs by shape, not only colour.
 struct RingMark: View {
+    @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
     var size: CGFloat = 16
 
@@ -112,7 +134,9 @@ struct RingMark: View {
             switch s.state {
             case .waiting:
                 Circle().fill(Pulse.clay).padding(size * 0.22)
-                Circle().stroke(Pulse.clay.opacity(0.3), lineWidth: size * 0.18).padding(size * 0.13)
+                Circle().stroke(Pulse.clay.opacity(tick % 2 == 0 ? 0.45 : 0.12), lineWidth: size * 0.18)
+                    .padding(size * 0.13)
+                    .scaleEffect(tick % 2 == 0 ? 0.85 : 1.15)
             case .running where s.stepsTotal > 0:
                 ring.stroke(Color.primary.opacity(0.16), lineWidth: line)
                 ring.trim(from: 0, to: max(0.06, s.progress ?? 0))
@@ -122,7 +146,7 @@ struct RingMark: View {
                 ring.stroke(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: line, dash: [size / 5, size / 5]))
                 ring.trim(from: 0, to: 0.25)
                     .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+                    .rotationEffect(.degrees(-90 + Double(tick) * 90))
             case .done:
                 ring.stroke(Pulse.green, lineWidth: line)
                 Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(Pulse.green)
@@ -138,11 +162,13 @@ struct RingMark: View {
             }
         }
         .frame(width: size, height: size)
+        .animation(.easeInOut(duration: 1.2), value: tick)
     }
 }
 
 /// One segment per step: done ones solid, the current one half, the rest a faint track.
 struct StepSegments: View {
+    @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
     var height: CGFloat = 4
 
@@ -161,26 +187,195 @@ struct StepSegments: View {
             } else {
                 HStack(spacing: 3) {
                     ForEach(0..<max(total, 1), id: \.self) { i in
-                        Capsule().fill(i < s.stepsDone ? fill : (i == s.stepsDone && s.state == .running ? fill.opacity(0.45) : Color.primary.opacity(0.14)))
+                        Capsule().fill(i < s.stepsDone ? fill : (i == s.stepsDone && s.state == .running ? fill.opacity(tick % 2 == 0 ? 0.25 : 0.8) : Color.primary.opacity(0.14)))
                     }
                 }
             }
         }
         .frame(height: height)
+        .animation(.easeInOut(duration: 1.2), value: tick)
     }
 
     private var fill: Color { s.state == .idle ? Color.secondary : Color.primary }
+}
+
+// MARK: - The character (the Claude Code block creature)
+
+/// What the character is doing; one per session state.
+enum Mood: Hashable { case working, waiting, done, resting, sleeping }
+
+extension SessionSnapshot {
+    var mood: Mood {
+        switch state {
+        case .running: return .working
+        case .waiting: return .waiting
+        case .done: return .done
+        case .idle: return isPaused ? .resting : .sleeping
+        }
+    }
+}
+
+/// Drawn on the terminal glyph's grid: 18 half-cells wide, 5 half-rows tall, plus 2 rows of headroom
+/// for raised arms, jumps and the "?"/"z" marks. Every part is always present so a pose change animates
+/// as parts moving, not as a cut.
+struct Clawd: View {
+    @Environment(\.pulseTick) private var envTick
+    let mood: Mood
+    /// Overrides the timeline's tick (render harness).
+    var tick: Int? = nil
+    /// Width of one half-cell in points; a half-row is 1.7× taller, like a monospace glyph.
+    var px: CGFloat = 5
+
+    static let cols: CGFloat = 20
+    static let head: CGFloat = 4      // headroom rows for raised arms, jumps and marks
+    static func size(px: CGFloat) -> CGSize { CGSize(width: cols * px, height: (head + 5) * (px * 1.7).rounded()) }
+
+    private var t: Int { tick ?? envTick }
+    private var py: CGFloat { (px * 1.7).rounded() }
+    private var lazy: Bool { mood == .resting || mood == .sleeping }
+
+    var body: some View {
+        let p = pose
+        ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(p.solid.enumerated()), id: \.offset) { _, c in cell(c, p.lift) }
+                // Eyes are holes, so whatever is behind the card shows through.
+                ForEach(Array(p.eyes.enumerated()), id: \.offset) { _, c in cell(c, p.lift).blendMode(.destinationOut) }
+            }
+            .compositingGroup()
+            // "?" and "z" on a square pixel grid of their own, so they match the creature.
+            ForEach(Array(p.marks.enumerated()), id: \.offset) { _, m in
+                glyph(m.bits, unit: px * m.scale)
+                    .opacity(m.opacity)
+                    .offset(x: m.x * px, y: (m.y + Self.head) * py)
+            }
+        }
+        .foregroundStyle(color)
+        .frame(width: Self.cols * px, height: (Self.head + 5) * py, alignment: .topLeading)
+        .animation(lazy ? .easeInOut(duration: 1.8) : .spring(response: 0.42, dampingFraction: 0.6), value: t)
+        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: mood)
+        .accessibilityHidden(true)
+    }
+
+    private var color: AnyShapeStyle {
+        switch mood {
+        case .waiting: return AnyShapeStyle(Pulse.clay)   // clay stays reserved for "needs you"
+        case .working, .done: return AnyShapeStyle(Color.primary.opacity(0.85))
+        case .resting, .sleeping: return AnyShapeStyle(Color.secondary.opacity(0.8))
+        }
+    }
+
+    private func cell(_ c: Part, _ lift: CGFloat) -> some View {
+        Rectangle()
+            .frame(width: c.w * px, height: max(0, c.h) * py)
+            .offset(x: c.x * px, y: (c.y + lift + Self.head) * py)
+    }
+
+    private func glyph(_ rows: [String], unit: CGFloat) -> some View {
+        Canvas { ctx, _ in
+            for (y, row) in rows.enumerated() {
+                for (x, ch) in row.enumerated() where ch == "1" {
+                    ctx.fill(Path(CGRect(x: CGFloat(x) * unit, y: CGFloat(y) * unit, width: unit, height: unit)),
+                             with: .foreground)
+                }
+            }
+        }
+        .frame(width: CGFloat(rows.first?.count ?? 0) * unit, height: CGFloat(rows.count) * unit)
+    }
+
+    private static let question = ["111", "001", "011", "000", "010"]
+    private static let zed = ["1111", "0010", "0100", "1111"]
+
+    private struct Part { var x: CGFloat; var y: CGFloat; var w: CGFloat; var h: CGFloat }
+    private struct Mark { var bits: [String]; var x: CGFloat; var y: CGFloat; var scale: CGFloat = 0.7; var opacity: Double = 1 }
+
+    /// Fixed slots, so every pose has the same parts and a change animates as parts moving.
+    private struct Pose {
+        var lift: CGFloat = 0
+        var armL = Part(x: 1, y: 2, w: 2, h: 1)
+        var armR = Part(x: 15, y: 2, w: 2, h: 1)
+        var extraL = Part(x: 1, y: 2, w: 0, h: 0)     // forearm / hand
+        var extraR = Part(x: 16, y: 2, w: 0, h: 0)
+        var hand = Part(x: 16, y: 2, w: 0, h: 0)
+        var cursor = Part(x: 18, y: 1, w: 0, h: 2)
+        var legs: CGFloat = 1
+        var eyes: [Part] = Pose.openEyes(dx: 0, y: 1, h: 1)
+        var marks: [Mark] = []
+
+        static func openEyes(dx: CGFloat, y: CGFloat, h: CGFloat) -> [Part] {
+            [Part(x: 5 + dx, y: y, w: 1, h: h), Part(x: 12 + dx, y: y, w: 1, h: h),
+             Part(x: 5, y: 1.5, w: 0, h: 0), Part(x: 12, y: 1.5, w: 0, h: 0)]
+        }
+        /// ^ ^ : two low pixels with a raised one between, per eye.
+        static let happyEyes: [Part] = [Part(x: 4, y: 1.5, w: 1, h: 0.5), Part(x: 11, y: 1.5, w: 1, h: 0.5),
+                                        Part(x: 5, y: 1, w: 1, h: 0.5), Part(x: 12, y: 1, w: 1, h: 0.5),
+                                        Part(x: 6, y: 1.5, w: 1, h: 0.5), Part(x: 13, y: 1.5, w: 1, h: 0.5)]
+
+        var solid: [Part] {
+            [Part(x: 3, y: 0, w: 12, h: 4), armL, armR, extraL, extraR, hand, cursor] +
+            [4.0, 6, 11, 13].map { Part(x: $0, y: 4, w: 1, h: legs) }
+        }
+    }
+
+    private var pose: Pose {
+        var p = Pose()
+        let odd = t % 2 == 1
+        switch mood {
+        case .working:
+            // At the keyboard: eyes down, arms typing in turn, a block cursor blinking beside it.
+            p.eyes = Pose.openEyes(dx: 0, y: 1.6, h: 0.9)
+            p.armL = Part(x: 1, y: odd ? 1.6 : 2, w: 2, h: 1)
+            p.armR = Part(x: 15, y: odd ? 2 : 1.6, w: 2, h: 1)
+            p.cursor = Part(x: 18, y: 1, w: odd ? 0 : 1, h: 2)
+        case .waiting:
+            // Waving for attention: arm out, forearm up, the hand rocking side to side under a "?".
+            p.armR = Part(x: 15, y: 2, w: 2, h: 1)
+            p.extraR = Part(x: 16, y: -0.5, w: 1, h: 2.5)
+            p.hand = Part(x: odd ? 16.5 : 15.5, y: -1.5, w: 2, h: 1)
+            p.eyes = Pose.openEyes(dx: 0.5, y: 0.7, h: 1)
+            p.marks = [Mark(bits: Self.question, x: odd ? 17.2 : 16.2, y: -3.9)]
+        case .done:
+            // Ta-da: arms flung wide, ^ ^ eyes, a hop.
+            p.lift = odd ? 0 : -0.8
+            p.armL = Part(x: 0, y: 1, w: 3, h: 1)
+            p.armR = Part(x: 15, y: 1, w: 3, h: 1)
+            p.extraL = Part(x: 0, y: 0, w: 1, h: 1)
+            p.extraR = Part(x: 17, y: 0, w: 1, h: 1)
+            p.eyes = Pose.happyEyes
+        case .resting:
+            // Paused: sitting, legs folded, eyes shifting and a blink now and then.
+            p.lift = 1; p.legs = 0
+            p.armL = Part(x: 1, y: 2.5, w: 2, h: 1); p.armR = Part(x: 15, y: 2.5, w: 2, h: 1)
+            switch t % 6 {
+            case 1: p.eyes = Pose.openEyes(dx: 1, y: 1, h: 1)
+            case 3: p.eyes = Pose.openEyes(dx: 0, y: 1.4, h: 0.2)
+            case 4: p.eyes = Pose.openEyes(dx: -1, y: 1, h: 1)
+            default: break
+            }
+        case .sleeping:
+            // Asleep: slow breathing, z's drifting up, and once in a while one eye peeks open.
+            p.lift = odd ? 0.8 : 1.1; p.legs = 0
+            p.armL = Part(x: 2, y: 2.8, w: 1, h: 1); p.armR = Part(x: 15, y: 2.8, w: 1, h: 1)
+            p.eyes = Pose.openEyes(dx: 0, y: 1.6, h: 0.3)
+            if t % 8 == 5 { p.eyes[1] = Part(x: 12, y: 1, w: 1, h: 0.9) }
+            p.marks = [Mark(bits: Self.zed, x: odd ? 17 : 16.3, y: odd ? -1.6 : -0.6, scale: 0.6, opacity: odd ? 0.4 : 0.9),
+                       Mark(bits: Self.zed, x: odd ? 15.6 : 15.2, y: odd ? 0.4 : 1.0, scale: 0.4, opacity: odd ? 0.9 : 0.4)]
+        }
+        return p
+    }
 }
 
 // MARK: - Hero (the most urgent session)
 
 struct Hero: View {
     @Environment(\.widgetRenderingMode) private var mode
+    @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
     var compact = false
     /// The small widget: no inner card, the widget background is the card.
     var fullBleed = false
     var othersWorking = 0
+    static let smallPx: CGFloat = 2.5
 
     var body: some View {
         OpenLink(url: s.url) {
@@ -200,16 +395,34 @@ struct Hero: View {
                         .layoutPriority(1)
                 }
                 Spacer(minLength: 0)
-                if s.stepsTotal > 0 && !(fullBleed && s.state == .waiting) {
-                    StepSegments(s: s)
+                Group {
+                    if !compact {
+                        // Standing on the steps bar, over the step it's on.
+                        VStack(alignment: .leading, spacing: 1) {
+                            GeometryReader { g in
+                                let w = Clawd.size(px: 5).width
+                                Clawd(mood: s.mood, px: 5)
+                                    .offset(x: max(0, g.size.width - w) * standX)
+                                    .animation(.spring(response: 0.8, dampingFraction: 0.8), value: standX)
+                            }
+                            .frame(height: Clawd.size(px: 5).height)
+                            if s.stepsTotal > 0 { StepSegments(s: s) }
+                        }
+                    } else if s.stepsTotal > 0 && !(fullBleed && s.state == .waiting) {
+                        StepSegments(s: s)
+                    }
+                    HStack {
+                        if !compact { Text(s.project.isEmpty ? s.kind.label : s.project); Spacer() }
+                        Text(compact ? compactFooter : footer).contentTransition(.numericText())
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
-                HStack {
-                    if !compact { Text(s.project.isEmpty ? s.kind.label : s.project); Spacer() }
-                    Text(compact ? compactFooter : footer).contentTransition(.numericText())
-                }
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .padding(.trailing, compact ? Clawd.size(px: Self.smallPx).width + 6 : 0)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if compact { Clawd(mood: s.mood, px: Self.smallPx) }
             }
             .padding(fullBleed ? 0 : compact ? 12 : 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -228,7 +441,8 @@ struct Hero: View {
         HStack(spacing: 7) {
             if s.state == .waiting {
                 Circle().fill(Pulse.clay).frame(width: 8, height: 8)
-                    .overlay(Circle().stroke(Pulse.clay.opacity(0.3), lineWidth: 3).padding(-3))
+                    .overlay(Circle().stroke(Pulse.clay.opacity(tick % 2 == 0 ? 0.5 : 0.1), lineWidth: 3)
+                        .padding(tick % 2 == 0 ? -2 : -5))
             } else {
                 RingMark(s: s, size: 12)
             }
@@ -236,6 +450,13 @@ struct Hero: View {
         }
         .font(.system(size: 11.5, weight: .semibold))
         .foregroundStyle(chipColor)
+    }
+
+    /// Where the character stands along the bar: over the current step, or at the start.
+    private var standX: CGFloat {
+        guard s.stepsTotal > 1 else { return 0 }
+        let i = min(s.stepsDone, s.stepsTotal - 1)
+        return CGFloat(i) / CGFloat(s.stepsTotal - 1)
     }
 
     private var chipLabel: String {
@@ -275,7 +496,8 @@ struct Hero: View {
 
     private var background: AnyShapeStyle {
         if s.state == .waiting {
-            return AnyShapeStyle(LinearGradient(colors: [Pulse.clay.opacity(0.24), Pulse.clay.opacity(0.08)],
+            let glow = tick % 2 == 0 ? 0.0 : 0.1
+            return AnyShapeStyle(LinearGradient(colors: [Pulse.clay.opacity(0.22 + glow), Pulse.clay.opacity(0.07 + glow / 2)],
                                                 startPoint: .top, endPoint: .bottom))
         }
         return AnyShapeStyle(Color.primary.opacity(0.06))
@@ -286,6 +508,7 @@ struct Hero: View {
 
 struct ListRow: View {
     @Environment(\.widgetRenderingMode) private var mode
+    @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
 
     private func titleText(withDetail: Bool) -> Text {
@@ -314,7 +537,7 @@ struct ListRow: View {
             }
             .padding(.horizontal, 6)
             .frame(maxHeight: 29)
-            .background(s.state == .waiting ? Pulse.clay.opacity(0.16) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(s.state == .waiting ? Pulse.clay.opacity(tick % 2 == 0 ? 0.13 : 0.24) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 if s.state == .waiting && mode != .fullColor {
                     RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.5), lineWidth: 1.5)
@@ -322,6 +545,7 @@ struct ListRow: View {
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
+            .animation(.easeInOut(duration: 1.2), value: tick)
         }
     }
 }
@@ -412,6 +636,7 @@ struct PulseWidgetView: View {
                 }
             }
         }
+        .environment(\.pulseTick, entry.tick)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)

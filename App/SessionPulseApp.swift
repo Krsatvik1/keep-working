@@ -15,9 +15,17 @@ struct SessionPulseApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            Image(systemName: model.running > 0 ? "circle.circle.fill" : "circle.circle")
+            Image(nsImage: Self.logo)
         }
     }
+
+    /// Claude's own menu-bar spark, copied in from Claude.app at build time.
+    private static let logo: NSImage = {
+        let img = NSImage(named: "TrayIconTemplate") ?? NSImage(systemSymbolName: "asterisk", accessibilityDescription: "Claude")!
+        img.isTemplate = true
+        img.size = NSSize(width: 18, height: 18)
+        return img
+    }()
 }
 
 /// Receives widget clicks (sessionpulse://open?to=…) and opens the session in Claude.
