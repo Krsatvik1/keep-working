@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import WidgetKit
-import AppIntents
 
 // MARK: - Timeline
 
@@ -11,6 +10,8 @@ struct PulseEntry: TimelineEntry {
     let error: String?
     /// Counts up between entries; poses, pulses and the spinning ring animate from one value to the next.
     var tick = 0
+    /// The hero session's last image, small, shown faded behind the hero.
+    var heroImage: Data? = nil
 }
 
 /// A widget can't loop an animation. It can only animate from one timeline entry to the next, so the
@@ -46,7 +47,7 @@ struct PulseProvider: TimelineProvider {
         let entries = (0..<count).map { i -> PulseEntry in
             let t = start + Double(i) * beat
             return PulseEntry(date: Date(timeIntervalSince1970: t), sessions: base.sessions, error: base.error,
-                              tick: Int(t / beat))
+                              tick: Int(t / beat), heroImage: base.heroImage)
         }
         // The menu-bar app also nudges a reload whenever a session file changes.
         completion(Timeline(entries: [base] + entries, policy: .after(entries.last!.date)))
@@ -54,12 +55,19 @@ struct PulseProvider: TimelineProvider {
 
     private func load() -> PulseEntry {
         let sessions = SessionStore.load(limit: 10)
-        return PulseEntry(date: .now, sessions: sessions, error: sessions.isEmpty ? SessionStore.lastError : nil)
+        let image = ordered(sessions).first?.transcript.flatMap { SessionStore.lastImage(transcript: $0) }
+        return PulseEntry(date: .now, sessions: sessions, error: sessions.isEmpty ? SessionStore.lastError : nil,
+                          heroImage: image)
     }
 }
 
 private struct TickKey: EnvironmentKey { static let defaultValue = 0 }
+private struct HeroImageKey: EnvironmentKey { static let defaultValue: Data? = nil }
 extension EnvironmentValues {
+    var heroImage: Data? {
+        get { self[HeroImageKey.self] }
+        set { self[HeroImageKey.self] = newValue }
+    }
     var pulseTick: Int {
         get { self[TickKey.self] }
         set { self[TickKey.self] = newValue }
@@ -218,27 +226,6 @@ struct StepSegments: View {
 /// What the character is doing; one per session state.
 enum Mood: String, Hashable { case working, waiting, done, resting, sleeping }
 
-/// A button on the hero steps the character through every mood, to see each animation on the desktop.
-/// Off shows the real session's mood. Kept in the extension's own defaults: the button's intent and the
-/// timeline both run in the widget process.
-enum DemoMood {
-    static let order: [Mood?] = [nil, .working, .waiting, .done, .resting, .sleeping]
-    static var current: Mood? {
-        UserDefaults.standard.string(forKey: "demoMood").flatMap(Mood.init(rawValue:))
-    }
-    static func next() {
-        let i = order.firstIndex(of: current) ?? 0
-        UserDefaults.standard.set(order[(i + 1) % order.count]?.rawValue, forKey: "demoMood")
-    }
-}
-
-struct NextAnimation: AppIntent {
-    static let title: LocalizedStringResource = "Show the next character animation"
-    func perform() async throws -> some IntentResult {
-        DemoMood.next()
-        return .result()
-    }
-}
 
 extension SessionSnapshot {
     var mood: Mood {
@@ -427,6 +414,7 @@ struct StageKey: PreferenceKey {
 
 struct Hero: View {
     @Environment(\.widgetRenderingMode) private var mode
+    @Environment(\.heroImage) private var heroImage
     @Environment(\.pulseTick) private var tick
     let s: SessionSnapshot
     var compact = false
@@ -447,36 +435,23 @@ struct Hero: View {
                 }
             }
         }
-        .overlay(alignment: .topTrailing) { if !compact { demoButton } }
     }
 
-    /// Steps the character through every animation. A real button, so it takes its own click and leaves the
-    /// rest of the card to the link.
-    private var demoButton: some View {
-        let label = HStack(spacing: 4) {
-            Image(systemName: DemoMood.current == nil ? "play.fill" : "forward.fill")
-            if let m = DemoMood.current { Text(m.rawValue) }
-        }
-        .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 7).padding(.vertical, 4)
-        .background(Color.primary.opacity(0.08), in: Capsule())
-        return Group {
-            #if RENDER_HARNESS
-            Button { DemoMood.next() } label: { label }
-            #else
-            Button(intent: NextAnimation()) { label }
-            #endif
-        }
-        .buttonStyle(.plain)
-        .padding(10)
-    }
 
     @ViewBuilder private var card: some View {
         if !fullBleed {
             let card = RoundedRectangle(cornerRadius: 14, style: .continuous)
             ZStack {
                 card.fill(background)
+                // The last image in the conversation, faded right back so the text stays the subject.
+                // A clear view sets the size, so the filled image can't push the card wider.
+                if let heroImage, let ns = NSImage(data: heroImage) {
+                    Color.clear
+                        .overlay(Image(nsImage: ns).resizable().scaledToFill())
+                        .opacity(0.16)
+                        .mask(LinearGradient(colors: [.black, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom))
+                        .clipShape(card)
+                }
                 // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
                 card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
                                          startPoint: .top, endPoint: .bottom))
@@ -586,8 +561,7 @@ struct Hero: View {
 
     /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
     /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
-    /// The real session's mood, unless the demo button has picked one.
-    private var mood: Mood { DemoMood.current ?? s.mood }
+    private var mood: Mood { s.mood }
     private var walks: Bool { mood == .working }
     private var walkingNow: Bool { walks && position(at: tick) != position(at: tick - 1) }
     private var facingLeft: Bool {
@@ -785,6 +759,7 @@ struct PulseWidgetView: View {
             }
         }
         .environment(\.pulseTick, entry.tick)
+            .environment(\.heroImage, entry.heroImage)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)

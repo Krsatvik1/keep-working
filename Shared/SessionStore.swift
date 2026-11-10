@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import os
 
 // MARK: - Model
@@ -24,6 +26,8 @@ struct SessionSnapshot: Identifiable, Codable, Hashable, Sendable {
     /// The step in progress, or the question the session is waiting on you for.
     let detail: String?
     let url: URL
+    /// The session's transcript file, when there is one (for its last image).
+    var transcript: String? = nil
 
     var progress: Double? {
         stepsTotal > 0 ? min(1, Double(stepsDone) / Double(stepsTotal)) : nil
@@ -87,8 +91,10 @@ enum SessionStore {
                 }
                 let status = live[sid] ?? cli.flatMap { live[$0] }
                 let title = nonEmpty(field("title", in: head)) ?? info.title ?? (cwd as NSString).lastPathComponent
-                out.append(snapshot(id: sid, title: title, cwd: cwd, kind: .code, live: status, info: info, last: last,
-                                    url: URL(string: "claude://code/continue?session=\(sid)")!))
+                var snap = snapshot(id: sid, title: title, cwd: cwd, kind: .code, live: status, info: info, last: last,
+                                    url: URL(string: "claude://code/continue?session=\(sid)")!)
+                snap.transcript = cli.flatMap { transcripts[$0]?.url.path }
+                out.append(snap)
             }
         }
 
@@ -117,9 +123,11 @@ enum SessionStore {
                 var info = analyze(t.url)
                 if info.title == nil { info.title = firstPrompt(in: head) }
                 let cwd = field("cwd", in: head) ?? ""
-                out.append(snapshot(id: uuid, title: info.title ?? "Terminal session", cwd: cwd, kind: .terminal,
+                var snap = snapshot(id: uuid, title: info.title ?? "Terminal session", cwd: cwd, kind: .terminal,
                                     live: live[uuid], info: info, last: t.mtime,
-                                    url: URL(string: "claude://resume?session=\(uuid)")!))
+                                    url: URL(string: "claude://resume?session=\(uuid)")!)
+                snap.transcript = t.url.path
+                out.append(snap)
             }
         }
 
@@ -431,6 +439,51 @@ enum PulseLink {
               let to = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "to" })?.value,
               let target = URL(string: to), target.scheme == "claude" else { return nil }
         return target
+    }
+}
+
+// MARK: - Last image
+
+
+extension SessionStore {
+    /// The last image in a transcript (pasted by you or read by Claude), shrunk to a small JPEG. Reads from the
+    /// end of the file backwards, at most 32 MB, so a long session stays cheap. Nil when there is none.
+    static func lastImage(transcript path: String, maxPixels: Int = 520) -> Data? {
+        guard let h = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? h.close() }
+        let size = (try? h.seekToEnd()) ?? 0
+        guard size > 0 else { return nil }
+        let marker = Data("\"type\":\"base64\"".utf8), dataKey = Data("\"data\":\"".utf8), quote = UInt8(ascii: "\"")
+        var window: UInt64 = 4 << 20
+        while true {
+            let start = size > window ? size - window : 0
+            try? h.seek(toOffset: start)
+            guard let buf = try? h.readToEnd() else { return nil }
+            if let m = buf.range(of: marker, options: .backwards),
+               let d = buf.range(of: dataKey, in: m.upperBound..<min(buf.endIndex, m.upperBound + 200)) {
+                var b64: Data
+                if let q = buf[d.upperBound...].firstIndex(of: quote) {
+                    b64 = buf[d.upperBound..<q]
+                } else { return nil }
+                b64 = Data(b64.filter { $0 != UInt8(ascii: "\\") })
+                guard let raw = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
+                return thumbnail(raw, maxPixels: maxPixels)
+            }
+            if start == 0 || window >= 32 << 20 { return nil }
+            window *= 2
+        }
+    }
+
+    private static func thumbnail(_ raw: Data, maxPixels: Int) -> Data? {
+        guard let src = CGImageSourceCreateWithData(raw as CFData, nil),
+              let img = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                  kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dst = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dst, img, [kCGImageDestinationLossyCompressionQuality: 0.6] as CFDictionary)
+        return CGImageDestinationFinalize(dst) ? out as Data : nil
     }
 }
 

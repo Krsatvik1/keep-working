@@ -388,11 +388,12 @@ struct FlipBook<Frame: View>: View {
     }
 
     /// Frame i's slice, set so it sits over the sprite (straight up from the pivot) while the turn is within
-    /// [i, i+1) of n parts. A hair of overlap so no gap ever shows between neighbours.
+    /// [i, i+1) of n parts. Neighbours overlap by half a point at the sprite, no more: the desktop draws white
+    /// content with an adding blend, so any wider overlap glows as a bright band mid-change.
     private struct Slice: Shape {
         let index: Int, count: Int
         func path(in r: CGRect) -> Path {
-            let w = 2 * Double.pi / Double(count), up = -Double.pi / 2, e = 0.002
+            let w = 2 * Double.pi / Double(count), up = -Double.pi / 2, e = 0.25 / Double(r.width / 2)
             var p = Path()
             let c = CGPoint(x: r.midX, y: r.midY)
             p.move(to: c)

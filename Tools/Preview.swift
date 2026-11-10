@@ -57,7 +57,11 @@ final class PreviewModel: ObservableObject {
         schedule()
     }
 
-    func reload() { sessions = scenario.sessions() }
+    @Published private(set) var heroImage: Data?
+    func reload() {
+        sessions = scenario.sessions()
+        heroImage = ordered(sessions).first?.transcript.flatMap { SessionStore.lastImage(transcript: $0) }
+    }
 
     private func schedule() {
         timer?.invalidate()
@@ -108,7 +112,8 @@ struct PreviewRoot: View {
     }
 
     @ViewBuilder private var widgets: some View {
-        let entry = PulseEntry(date: .now, sessions: model.sessions, error: model.scenario.error, tick: model.tick)
+        let entry = PulseEntry(date: .now, sessions: model.sessions, error: model.scenario.error, tick: model.tick,
+                               heroImage: model.heroImage)
         VStack(spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
