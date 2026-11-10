@@ -7,7 +7,9 @@ import WidgetKit
 struct Render {
     @MainActor static func main() {
         let out = CommandLine.arguments.dropFirst().first ?? "."
-        let entry = PulseEntry(date: .now, sessions: SessionStore.load(limit: 10), error: SessionStore.lastError)
+        let live = CommandLine.arguments.count < 3 || CommandLine.arguments[2] != "samples"
+        let entry = PulseEntry(date: .now, sessions: live ? SessionStore.load(limit: 10) : SessionSnapshot.samples,
+                               error: SessionStore.lastError)
         for s in entry.sessions { print(s.state.rawValue, s.stepsDone, s.stepsTotal, s.kind.rawValue, s.title, "|", s.detail ?? "", "|", s.url.absoluteString) }
         let sizes: [(String, WidgetFamily, CGSize)] = [("large", .systemLarge, CGSize(width: 344, height: 344)),
                                                        ("xl", .systemExtraLarge, CGSize(width: 714, height: 344)),

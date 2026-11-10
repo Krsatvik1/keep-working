@@ -49,16 +49,19 @@ enum Pulse {
 
 // MARK: - Pieces
 
+/// Clay is reserved for "needs you"; running is an open arc, so the four marks differ by shape in greyscale too.
 struct StatusMark: View {
     let state: SessionState
     var body: some View {
         ZStack {
             switch state {
-            case .running:
-                Circle().fill(Pulse.accent)
-                Circle().stroke(Pulse.accent.opacity(0.35), lineWidth: 3).padding(-2.5)
             case .waiting:
-                Circle().stroke(Pulse.accent, lineWidth: 1.6)
+                Circle().fill(Pulse.accent)
+                Circle().stroke(Pulse.accent.opacity(0.25), lineWidth: 2.5).padding(-2)
+            case .running:
+                Circle().trim(from: 0, to: 0.72)
+                    .stroke(Color.primary.opacity(0.8), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
             case .done:
                 Image(systemName: "checkmark").font(.system(size: 7.5, weight: .heavy)).foregroundStyle(Pulse.done)
             case .idle:
@@ -71,17 +74,18 @@ struct StatusMark: View {
 }
 
 struct ProgressTrack: View {
+    @Environment(\.colorScheme) private var scheme
     let value: Double
     let state: SessionState
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.09))
-                Capsule().fill(Pulse.color(state).opacity(state == .idle ? 0.55 : 1))
-                    .frame(width: max(3, geo.size.width * value))
+                Capsule().fill(Color.primary.opacity(scheme == .dark ? 0.12 : 0.08))
+                Capsule().fill(state == .waiting ? Pulse.accent : Color.primary.opacity(state == .running ? 0.55 : 0.35))
+                    .frame(width: max(2, geo.size.width * value))
             }
         }
-        .frame(height: 3)
+        .frame(height: 2)
     }
 }
 
@@ -90,12 +94,19 @@ extension SessionSnapshot {
         stepsTotal > 0 ? "\(stepsDone)/\(stepsTotal) · \(lastActivity.shortAgo)" : lastActivity.shortAgo
     }
 
+    /// A bar only while a list is part-way done; "7/7" in the trailing text already says finished.
+    var partialProgress: Double? {
+        stepsTotal > 0 && stepsDone < stepsTotal ? progress : nil
+    }
+
     var subline: String {
         if state == .waiting, let detail { return "Needs you: \(detail)" }
         if state == .running, let detail { return detail }
-        if state == .running { return "\(project) · working" }
+        if kind == .code { return project.isEmpty ? "Code" : project }
         return project.isEmpty ? kind.label : "\(project) · \(kind.label)"
     }
+
+    var isQuiet: Bool { state == .idle }
 }
 
 extension SessionKind {
@@ -108,27 +119,28 @@ extension SessionKind {
     }
 }
 
-/// One line per session; a hairline of progress under it when the session keeps a task list.
+/// One line per session; a hairline of progress hangs under the title when a task list is part-way done.
 struct CompactRow: View {
     let s: SessionSnapshot
     var body: some View {
         OpenLink(url: s.url) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    StatusMark(state: s.state)
-                    Text(s.title)
-                        .font(.system(size: 12, weight: s.state == .idle ? .regular : .medium))
-                        .foregroundStyle(s.state == .idle ? .secondary : .primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 6)
-                    Text(s.trailing)
-                        .font(.system(size: 10.5))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .layoutPriority(1)
-                }
-                if let p = s.progress {
-                    ProgressTrack(value: p, state: s.state).padding(.leading, 18)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                StatusMark(state: s.state)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3.5 }
+                Text(s.title)
+                    .font(.system(size: 12, weight: s.isQuiet ? .regular : .medium))
+                    .foregroundStyle(s.isQuiet ? .secondary : .primary)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                Text(s.trailing)
+                    .font(.system(size: 10.5))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .layoutPriority(1)
+            }
+            .overlay(alignment: .bottomLeading) {
+                if let p = s.partialProgress {
+                    ProgressTrack(value: p, state: s.state).padding(.leading, 18).offset(y: 6)
                 }
             }
             .frame(maxHeight: .infinity)
@@ -142,11 +154,15 @@ struct DetailRow: View {
     let s: SessionSnapshot
     var body: some View {
         OpenLink(url: s.url) {
-            HStack(alignment: .top, spacing: 6) {
-                StatusMark(state: s.state).padding(.top, 3)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                StatusMark(state: s.state)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3.5 }
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(s.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(s.title)
+                            .font(.system(size: 12.5, weight: s.isQuiet ? .regular : .medium))
+                            .foregroundStyle(s.isQuiet ? .secondary : .primary)
+                            .lineLimit(1)
                         Spacer(minLength: 6)
                         Text(s.trailing).font(.system(size: 10.5)).monospacedDigit().foregroundStyle(.secondary)
                     }
@@ -154,10 +170,11 @@ struct DetailRow: View {
                         .font(.system(size: 11))
                         .foregroundStyle(s.state == .waiting ? AnyShapeStyle(Pulse.accent) : AnyShapeStyle(.secondary))
                         .lineLimit(1)
-                    if let p = s.progress { ProgressTrack(value: p, state: s.state).padding(.top, 1) }
+                    if let p = s.partialProgress { ProgressTrack(value: p, state: s.state).padding(.top, 2) }
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .center)
+            .frame(height: 54, alignment: .top)
+            .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
         }
     }
@@ -171,15 +188,18 @@ struct Header: View {
         HStack(alignment: .firstTextBaseline) {
             Text("Claude sessions").font(.system(size: 13, weight: .semibold))
             Spacer()
-            Group {
-                if running + waiting == 0 { Text("all quiet") }
-                else {
-                    Text([running > 0 ? "\(running) running" : nil, waiting > 0 ? "\(waiting) need you" : nil]
-                        .compactMap { $0 }.joined(separator: " · "))
-                }
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(running + waiting > 0 ? AnyShapeStyle(Pulse.accent) : AnyShapeStyle(.secondary))
+            summary(running: running, waiting: waiting).font(.system(size: 11))
+        }
+    }
+
+    private func summary(running: Int, waiting: Int) -> Text {
+        let need = waiting == 0 ? nil : Text(waiting == 1 ? "1 needs you" : "\(waiting) need you").foregroundColor(Pulse.accent)
+        let run = running == 0 ? nil : Text("\(running) running").foregroundColor(.secondary)
+        switch (need, run) {
+        case let (n?, r?): return n + Text(" · ").foregroundColor(.secondary) + r
+        case let (n?, nil): return n
+        case let (nil, r?): return r
+        default: return Text("all quiet").foregroundColor(.secondary)
         }
     }
 }
@@ -203,6 +223,15 @@ struct PulseWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: PulseEntry
     var forcedFamily: WidgetFamily? = nil   // for the render harness
+
+    /// The 10 most recent sessions, with the ones that need you first and running ones next.
+    private var ordered: [SessionSnapshot] {
+        let rank: [SessionState: Int] = [.waiting: 0, .running: 1, .done: 2, .idle: 2]
+        return entry.sessions.sorted {
+            let (a, b) = (rank[$0.state] ?? 3, rank[$1.state] ?? 3)
+            return a != b ? a < b : $0.lastActivity > $1.lastActivity
+        }
+    }
 
     var body: some View {
         Group {
@@ -228,7 +257,7 @@ struct PulseWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             Header(sessions: entry.sessions)
             Spacer(minLength: 4)
-            ForEach(entry.sessions.prefix(4)) { s in
+            ForEach(ordered.prefix(4)) { s in
                 HStack(spacing: 5) {
                     StatusMark(state: s.state)
                     Text(s.title).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
@@ -236,35 +265,36 @@ struct PulseWidgetView: View {
                 .frame(maxHeight: .infinity)
             }
         }
-        .widgetURL(entry.sessions.first?.url)
+        .widgetURL(ordered.first?.url)
     }
 
     private var medium: some View {
         VStack(alignment: .leading, spacing: 2) {
             Header(sessions: entry.sessions)
-            ForEach(entry.sessions.prefix(4)) { CompactRow(s: $0) }
+            ForEach(ordered.prefix(4)) { CompactRow(s: $0) }
         }
     }
 
     private var large: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Header(sessions: entry.sessions).padding(.bottom, 4)
-            ForEach(entry.sessions.prefix(10)) { CompactRow(s: $0) }
+            Header(sessions: entry.sessions).padding(.bottom, 8)
+            ForEach(ordered.prefix(10)) { CompactRow(s: $0) }
             if entry.sessions.count < 10 { Spacer(minLength: 0) }
         }
     }
 
     private var extraLarge: some View {
-        let list = Array(entry.sessions.prefix(10))
+        let list = Array(ordered.prefix(10))
         let left = Array(list.prefix(5)), right = Array(list.dropFirst(5))
         return VStack(alignment: .leading, spacing: 6) {
             Header(sessions: entry.sessions)
             HStack(alignment: .top, spacing: 18) {
-                VStack(spacing: 0) { ForEach(left) { DetailRow(s: $0) } }
+                VStack(spacing: 0) { ForEach(left) { DetailRow(s: $0) } }.frame(maxWidth: .infinity, alignment: .top)
                 VStack(spacing: 0) {
                     ForEach(right) { DetailRow(s: $0) }
                     if right.count < 5 { Spacer(minLength: 0) }
                 }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
     }
