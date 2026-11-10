@@ -109,7 +109,6 @@ enum Script {
         (12.3, 16.0, "It snaps each new image."),
         (18.4, 21.0, "It waves when Claude needs you."),
         (24.3, 26.5, "Done."),
-        (28.2, 31.5, "Four sizes."),
     ]
 
     /// Camera on the extra-large widget: (clock, scale, focus x, focus y), focus in widget points from its centre.
@@ -191,6 +190,8 @@ enum Assets {
     }()
 
     static let icon: NSImage? = NSImage(contentsOfFile: "App/Resources/AppIcon-1024.png")
+    /// A capture of the desktop the sizes shot plays on. Personal, so it stays in the ignored build folder.
+    static let desktop: NSImage? = NSImage(contentsOfFile: "build/film-assets/desktop.jpg")
 }
 
 // MARK: - Frame
@@ -227,6 +228,7 @@ struct FilmFrame: View {
             LinearGradient(colors: [Self.paperBottom.opacity(0), Self.paperBottom, Self.paperBottom],
                            startPoint: .top, endPoint: .bottom)
                 .frame(height: 290).position(x: 960, y: 1080 - 145)
+                .opacity(t < 28 ? 1 : 0)
             caption.opacity(exit.map { ramp($0, 0, 0.2) } ?? 1)
             // Coming back from the chat, the click that took us there is over.
             if enter == nil { cursor.opacity(exit.map { ramp($0, 0, 0.15) } ?? 1) } else if (enter ?? 0) > 1.0 { cursor.opacity(exit.map { ramp($0, 0, 0.15) } ?? 1) }
@@ -304,33 +306,46 @@ struct FilmFrame: View {
         return (a.1 + (b.1 - a.1) * k, a.2 + (b.2 - a.2) * k, a.3 + (b.3 - a.3) * k)
     }
 
-    /// The four sizes at one scale, so their real proportions show: one at a time, each swapping into the
-    /// next over eight frames, then all four together.
+    /// The four sizes where they live: a capture of a real Mac desktop (build/film-assets/desktop.jpg, kept out
+    /// of git), shown as a screen, with the widgets tiling into its corner one after another at true size.
     private var sizes: some View {
-        let all: [(WidgetFamily, CGSize)] = [
-            (.systemSmall, CGSize(width: 164, height: 164)), (.systemMedium, CGSize(width: 344, height: 164)),
-            (.systemLarge, CGSize(width: 344, height: 344)), (.systemExtraLarge, CGSize(width: 704, height: 344)),
+        let desk = CGSize(width: 1372, height: 888)      // the desktop, in points
+        let screenWidth = 1500.0, k = screenWidth / desk.width
+        let slots: [(WidgetFamily, CGSize, CGPoint, Double)] = [
+            (.systemExtraLarge, CGSize(width: 704, height: 344), CGPoint(x: 652, y: 40), 28.55),
+            (.systemLarge, CGSize(width: 344, height: 344), CGPoint(x: 652, y: 400), 29.0),
+            (.systemMedium, CGSize(width: 344, height: 164), CGPoint(x: 1012, y: 400), 29.45),
+            (.systemSmall, CGSize(width: 164, height: 164), CGPoint(x: 1012, y: 580), 29.9),
         ]
         let m = Script.moment(tick)
-        let step = 0.62, first = 28.05, together = first + 4 * step
-        return ZStack {
-            ForEach(0..<4, id: \.self) { i in
-                let start = first + step * Double(i), end = i == 3 ? together : start + step
-                if t >= start - 0.02 && t < end + 0.14 {
-                    chrome(all[i].1) { tile(m, all[i].0, all[i].1) }
-                        .scaleEffect(2.0 * (0.94 + 0.06 * ramp(t, start, start + 0.2)))
-                        .opacity(ramp(t, start, start + 0.13) * (1 - ramp(t, end, end + 0.13)))
-                }
+        let screen = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return ZStack(alignment: .topLeading) {
+            if let img = Assets.desktop {
+                Image(nsImage: img).resizable().interpolation(.high).frame(width: desk.width, height: desk.height)
+            } else {
+                Color(red: 0.33, green: 0.47, blue: 0.24).frame(width: desk.width, height: desk.height)
             }
-            if t >= together {
-                HStack(alignment: .center, spacing: 22) {
-                    ForEach(0..<4, id: \.self) { i in chrome(all[i].1) { tile(m, all[i].0, all[i].1) } }
-                }
-                .scaleEffect(1.1 * (0.96 + 0.04 * ramp(t, together, together + 0.25)))
-                .opacity(ramp(t, together, together + 0.13))
+            ForEach(0..<slots.count, id: \.self) { i in
+                let (family, size, at, start) = slots[i]
+                // Each tile drops into its slot and settles with a small overshoot.
+                let x = min(1, max(0, (t - start) / 0.42)), back = 1 + 2.3 * pow(x - 1, 3) + 1.3 * pow(x - 1, 2)
+                chrome(size) { tile(m, family, size) }
+                    .scaleEffect(0.88 + 0.12 * back)
+                    .opacity(ramp(t, start, start + 0.16))
+                    .offset(x: at.x, y: at.y - 22 * (1 - back))
             }
         }
-        .position(Self.stage)
+        .frame(width: desk.width, height: desk.height, alignment: .topLeading)
+        .clipped()
+        .scaleEffect(k)
+        .frame(width: desk.width * k, height: desk.height * k)
+        .clipShape(screen)
+        .padding(11)
+        .background(Color.black, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 40, y: 22)
+        // A slow drift, then a push in on the widgets once all four have landed.
+        .scaleEffect(1 + 0.03 * ramp(t, 28.2, 31.6) + 0.24 * ramp(t, 30.45, 31.5), anchor: UnitPoint(x: 0.86, y: 0.26))
+        .position(x: 960, y: 532)
     }
 
     // MARK: Captions, cursor, end card
@@ -374,12 +389,17 @@ struct FilmFrame: View {
                 Text("Keep Working")
                     .font(.system(size: 124, weight: .bold)).tracking(-4.6).foregroundStyle(Self.ink)
                     .padding(.top, 26).opacity(show(0.12)).offset(y: rise(0.12))
-                Text("A desktop widget for your Claude sessions.")
-                    .font(.system(size: 46, weight: .regular)).tracking(-0.9).foregroundStyle(Self.ink.opacity(0.62))
-                    .padding(.top, 12).opacity(show(0.24)).offset(y: rise(0.24))
+                HStack(spacing: 14) {
+                    Image(systemName: "arrow.down.to.line").font(.system(size: 34, weight: .semibold))
+                    Text("Download for macOS").font(.system(size: 42, weight: .semibold)).tracking(-0.9)
+                }
+                .foregroundStyle(Self.paperTop)
+                .padding(.horizontal, 40).frame(height: 96)
+                .background(Self.ink, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .padding(.top, 44).opacity(show(0.24)).offset(y: rise(0.24))
                 Text("github.com/Krsatvik1/keep-working")
-                    .font(.system(size: 36, weight: .medium)).tracking(-0.5).foregroundStyle(Self.ink.opacity(0.45))
-                    .padding(.top, 52).opacity(show(0.4)).offset(y: rise(0.4))
+                    .font(.system(size: 36, weight: .medium)).tracking(-0.5).foregroundStyle(Self.ink.opacity(0.5))
+                    .padding(.top, 30).opacity(show(0.4)).offset(y: rise(0.4))
             }
             .offset(y: -10)
         }

@@ -59,7 +59,8 @@ session list and marks are the widget's. About 39 s:
 5. Chat: one click on an answer.
 6. Back: done, the jump and spin. Click the card.
 7. Chat: the reply writes itself in, with the redesign it made.
-8. Four sizes at one scale, then the end card.
+8. The four sizes tile onto a capture of Satvik's real Mac desktop (`build/film-assets/desktop.jpg`, not in git;
+   the desktop-icon column is painted out). Then the download card: "Download for macOS" and the repo link.
 
 Still open: music (Google Flow needs Satvik to accept its privacy notice first), and the install shot
 (waits for the second-Mac test).
