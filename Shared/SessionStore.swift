@@ -133,7 +133,7 @@ enum SessionStore {
 
         saveScans()
         let process = ProcessInfo.processInfo.processName
-        Logger(subsystem: "xyz.krsatvik.Afoot", category: "store")
+        Logger(subsystem: "xyz.krsatvik.KeepWorking", category: "store")
             .info("\(process, privacy: .public) loaded \(out.count) sessions, error: \(lastError ?? "none", privacy: .public)")
         return Array(out.sorted { $0.lastActivity > $1.lastActivity }.prefix(limit))
     }
@@ -423,11 +423,11 @@ enum SessionStore {
 // MARK: - Links
 
 /// On macOS a widget click opens the widget's own app with the URL, not the URL itself,
-/// so widget links are wrapped as afoot://open?to=<claude://…> and the app forwards them.
+/// so widget links are wrapped as keepworking://open?to=<claude://…> and the app forwards them.
 enum PulseLink {
     static func wrap(_ target: URL) -> URL {
         var c = URLComponents()
-        c.scheme = "afoot"
+        c.scheme = "keepworking"
         c.host = "open"
         c.queryItems = [URLQueryItem(name: "to", value: target.absoluteString)]
         return c.url ?? target
@@ -435,7 +435,7 @@ enum PulseLink {
 
     /// The claude:// link inside a wrapped URL; only claude:// targets are forwarded.
     static func unwrap(_ url: URL) -> URL? {
-        guard url.scheme == "afoot",
+        guard url.scheme == "keepworking",
               let to = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "to" })?.value,
               let target = URL(string: to), target.scheme == "claude" else { return nil }
         return target

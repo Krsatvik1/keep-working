@@ -1,5 +1,5 @@
 // Renders the widget families to PNGs, for checking layout without placing the widget.
-// swiftc -parse-as-library -D RENDER_HARNESS Shared/SessionStore.swift Widget/AfootWidget.swift Tools/render.swift -o build/render
+// swiftc -parse-as-library -D RENDER_HARNESS Shared/SessionStore.swift Widget/KeepWorkingWidget.swift Tools/render.swift -o build/render
 //   ./build/render <outdir>               live data
 //   ./build/render <outdir> samples [tick] sample data, at a given animation tick
 //   ./build/render <outdir> clawd          every character mood across 8 ticks

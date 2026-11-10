@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Afoot</string>
+	<string>Keep Working</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Afoot</string>
+	<string>Keep Working</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,10 +24,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>xyz.krsatvik.Afoot</string>
+			<string>xyz.krsatvik.KeepWorking</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>afoot</string>
+				<string>keepworking</string>
 			</array>
 		</dict>
 	</array>

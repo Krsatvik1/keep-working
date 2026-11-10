@@ -800,7 +800,7 @@ struct EmptyState: View {
             Text(error == nil ? "No Claude sessions yet" : "Can't see your sessions")
                 .font(.system(size: 15, weight: .semibold))
             Text(error == nil ? "Start one and it shows up here with its progress."
-                              : "Afoot couldn't read Claude's session folder. Open it to check.")
+                              : "Keep Working couldn't read Claude's session folder. Open it to check.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             OpenLink(url: URL(string: error == nil ? "claude://code/new" : "claude://code/new")!) {
@@ -821,9 +821,9 @@ struct EmptyState: View {
 
 // MARK: - Widget
 
-struct AfootWidget: Widget {
+struct KeepWorkingWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "Afoot", provider: PulseProvider()) { entry in
+        StaticConfiguration(kind: "KeepWorking", provider: PulseProvider()) { entry in
             PulseWidgetView(entry: entry)
         }
         .configurationDisplayName("Claude sessions")
@@ -835,6 +835,6 @@ struct AfootWidget: Widget {
 #if !RENDER_HARNESS
 @main
 #endif
-struct AfootBundle: WidgetBundle {
-    var body: some Widget { AfootWidget() }
+struct KeepWorkingBundle: WidgetBundle {
+    var body: some Widget { KeepWorkingWidget() }
 }

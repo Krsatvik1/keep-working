@@ -35,9 +35,9 @@ Most work for the weakest result. Not recommended.
 
 ## Decision (11 Nov 2026)
 
-- **Name: Afoot.** It means "underway", and the character is literally on foot. No app or repo by that name
+- **Name: Keep Working.** It means "underway", and the character is literally on foot. No app or repo by that name
   turned up in this niche (Claude Status, Clyde, HexDeck, Claude Visor, ClaudeDot already exist; the walking
-  character is the difference). Bundle ids `xyz.krsatvik.Afoot`, link scheme `afoot://`.
+  character is the difference). Bundle ids `xyz.krsatvik.KeepWorking`, link scheme `keepworking://`.
 - **Route: direct download from GitHub, private for now.** No Apple Developer account, so no Developer ID and
   no notarization. Consequences to solve before sharing:
   - People must allow it in System Settings → Privacy & Security (or `xattr -dr com.apple.quarantine`) on first run.

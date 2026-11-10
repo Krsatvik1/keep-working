@@ -1,4 +1,4 @@
-name: Afoot
+name: KeepWorking
 options:
   bundleIdPrefix: xyz.krsatvik
   deploymentTarget:
@@ -15,28 +15,28 @@ settings:
     ENABLE_HARDENED_RUNTIME: NO
     GENERATE_INFOPLIST_FILE: NO
 targets:
-  Afoot:
+  KeepWorking:
     type: application
     platform: macOS
     sources: [App, Shared]
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Afoot
-        CFBundleName: Afoot
+        CFBundleDisplayName: Keep Working
+        CFBundleName: Keep Working
         LSUIElement: true
         LSApplicationCategoryType: public.app-category.developer-tools
         CFBundleIconFile: AppIcon
         CFBundleURLTypes:
-          - CFBundleURLName: xyz.krsatvik.Afoot
-            CFBundleURLSchemes: [afoot]
+          - CFBundleURLName: xyz.krsatvik.KeepWorking
+            CFBundleURLSchemes: [keepworking]
     entitlements:
       path: App/App.entitlements
       properties: {}
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.Afoot
-        PRODUCT_NAME: Afoot
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.KeepWorking
+        PRODUCT_NAME: Keep Working
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     preBuildScripts:
       # The Claude logo comes from the installed Claude app at build time; it is never committed here.
@@ -49,15 +49,15 @@ targets:
           cp "$R/electron.icns" "$D/AppIcon.icns" || echo "warning: Claude.app icon not found"
           cp "$R"/TrayIconTemplate*.png "$D/" || echo "warning: Claude.app menu-bar icon not found"
     dependencies:
-      - target: AfootWidget
-  AfootWidget:
+      - target: KeepWorkingWidget
+  KeepWorkingWidget:
     type: app-extension
     platform: macOS
     sources: [Widget, Shared]
     info:
       path: Widget/Info.plist
       properties:
-        CFBundleDisplayName: Afoot
+        CFBundleDisplayName: Keep Working
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -69,8 +69,8 @@ targets:
           - /Library/Application Support/Claude/
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.Afoot.Widget
-        PRODUCT_NAME: AfootWidget
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.krsatvik.KeepWorking.Widget
+        PRODUCT_NAME: KeepWorkingWidget
         SKIP_INSTALL: YES
     dependencies:
       - sdk: WidgetKit.framework
