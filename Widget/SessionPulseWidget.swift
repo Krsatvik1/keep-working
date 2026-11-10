@@ -411,11 +411,29 @@ struct Hero: View {
     static let heroPx: CGFloat = 4.5
 
     var body: some View {
-        link.overlayPreferenceValue(StageKey.self) { stage in
-            GeometryReader { g in
-                if let stage { character(in: g[stage]) }
+        // The link is the top layer. The card and the character are drawn behind it: anything over a widget
+        // link swallows the click, and the flip-book's huge spinning masks can't live inside one.
+        link.backgroundPreferenceValue(StageKey.self) { stage in
+            ZStack(alignment: .topLeading) {
+                card
+                GeometryReader { g in
+                    if let stage { character(in: g[stage]) }
+                }
             }
-            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder private var card: some View {
+        if !fullBleed {
+            let card = RoundedRectangle(cornerRadius: 14, style: .continuous)
+            ZStack {
+                card.fill(background)
+                // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
+                card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .opacity(s.state == .waiting && tick % 2 == 1 ? 1 : 0)
+            }
+            .animation(Beat.ease, value: tick)
         }
     }
 
@@ -484,19 +502,6 @@ struct Hero: View {
             }
             .padding(fullBleed ? 0 : compact ? 12 : 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background {
-                if !fullBleed {
-                    let card = RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    ZStack {
-                        card.fill(background)
-                        // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
-                        card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
-                                                 startPoint: .top, endPoint: .bottom))
-                            .opacity(s.state == .waiting && tick % 2 == 1 ? 1 : 0)
-                    }
-                    .animation(Beat.ease, value: tick)
-                }
-            }
             .overlay {
                 // Monochrome desktop mode drops the clay; keep "needs you" visible with an outline.
                 if s.state == .waiting && mode != .fullColor && !fullBleed {
