@@ -120,3 +120,5 @@ zoomed 2–3x by the camera, showed as bands. Grouping before each shadow remove
 CPU render also fixed it but took over an hour; the fixed GPU render takes under 3 minutes. Grain was tried and
 dropped (too noisy). `film.sh` builds the widget from HEAD (FILM_WIDGET_REV=worktree for the folder), so
 unfinished widget work can't end up in a render.
+
+Satvik on the debanded v5: clean. `cuts/keep-working-v5-desktop.mp4` is the current final.
