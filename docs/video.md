@@ -107,5 +107,9 @@ the hero (so you watch it wake as the prompt is sent) and goes back into it; the
 it at the end. One clock runs throughout. Sound: `Tools/film-sfx.py picture music out 3.5 desktop`.
 `cuts/keep-working-v5-desktop.mp4`. v4 (on paper) is kept alongside it.
 
+Satvik on v5: perfect, bar the image. The picture Claude makes was dark grey like the interface, so it didn't read
+as an image. It is now a bright, colourful pricing page (`MockImage`): behind the hero after the snapshot, half
+scrolled out of the top of the answer chat (it has been read by then), and whole in the reply.
+
 Still open: the opening/poster frame and the placeholder chat (low priority, Satvik); the install shot waits
 for the second-Mac test.

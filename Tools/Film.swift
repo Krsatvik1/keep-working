@@ -157,6 +157,60 @@ enum Script {
     static var endAt = 34.0
 }
 
+/// The picture in the story: the pricing page Claude designed. Bright and colourful on purpose, so that behind
+/// the widget and in the chat it reads at once as an image, not as more interface. The top is left calm (it sits
+/// behind the widget's title); the page's cards fill the lower half.
+struct MockImage: View {
+    static let size = CGSize(width: 540, height: 560)
+    private static let accents = [Color(red: 1.0, green: 0.78, blue: 0.25), Color(red: 1.0, green: 0.42, blue: 0.45),
+                                  Color(red: 0.30, green: 0.85, blue: 0.68)]
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.13, green: 0.20, blue: 0.70), Color(red: 0.48, green: 0.24, blue: 0.80),
+                                    Color(red: 0.98, green: 0.47, blue: 0.52)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle().fill(Color(red: 1.0, green: 0.82, blue: 0.32)).frame(width: 150, height: 150).offset(x: 175, y: -185)
+            Circle().fill(Color.white.opacity(0.14)).frame(width: 260, height: 260).offset(x: -200, y: -60)
+            VStack(spacing: 20) {
+                Spacer(minLength: 0)
+                VStack(spacing: 9) {
+                    RoundedRectangle(cornerRadius: 6).fill(Color.white).frame(width: 250, height: 18)
+                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.7)).frame(width: 170, height: 9)
+                }
+                HStack(alignment: .bottom, spacing: 14) {
+                    ForEach(0..<3, id: \.self) { i in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Circle().fill(Self.accents[i]).frame(width: 30, height: 30)
+                            RoundedRectangle(cornerRadius: 4).fill(Color(white: 0.12)).frame(width: 72, height: 22)
+                            ForEach(0..<3, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 2).fill(Color(white: 0.78)).frame(height: 6)
+                            }
+                            RoundedRectangle(cornerRadius: 9).fill(Self.accents[i]).frame(height: 30)
+                        }
+                        .padding(14)
+                        .frame(width: 152, height: i == 1 ? 226 : 204)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+                    }
+                }
+            }
+            .padding(.bottom, 40)
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .clipped()
+    }
+
+    /// The image as the chat shows it: scaled to the column, showing this much of its lower part.
+    static func inChat(height: CGFloat) -> some View {
+        MockImage()
+            .scaleEffect(500 / size.width, anchor: .bottom)
+            .frame(width: 500, height: height, alignment: .bottom)
+            .clipped()
+    }
+}
+
 /// The three plan cards of the made-up pricing page: behind the hero as the snapped image, and in the chat.
 struct MockCards: View {
     var body: some View {
@@ -187,18 +241,11 @@ enum Assets {
         _makeMock
     }
     @MainActor private static let _makeMock: Data? = {
-        // Dark, like the card it sits behind, and kept to the lower part so nothing lands behind the title.
-        let view = VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            MockCards()
-            .padding(.bottom, 54)
-        }
-        .frame(width: 540, height: 560)
-        .background(Color(white: 0.1))
+        let view = MockImage()
         let r = ImageRenderer(content: view)
         r.scale = 1
         guard let cg = r.cgImage else { return nil }
-        return NSBitmapImageRep(cgImage: cg).representation(using: .jpeg, properties: [.compressionFactor: 0.8])
+        return NSBitmapImageRep(cgImage: cg).representation(using: .jpeg, properties: [.compressionFactor: 0.9])
     }()
 
     static let icon: NSImage? = NSImage(contentsOfFile: "App/Resources/AppIcon-1024.png")
@@ -732,8 +779,9 @@ struct SceneFrame: View {
 
     // It has stopped on a question; one click answers it.
     @ViewBuilder private var answerChat: some View {
-        header
-        bubble(Script.prompt)
+        // The picture Claude has already read, scrolled half out of the top of the chat.
+        MockImage.inChat(height: 122)
+            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14, style: .continuous))
         VStack(alignment: .leading, spacing: 12) { line(520, at: -1); line(450, at: -1); line(320, at: -1) }
         VStack(alignment: .leading, spacing: 16) {
             Text(Script.question).font(.system(size: 22, weight: .semibold)).tracking(-0.3).foregroundStyle(.white.opacity(0.95))
@@ -764,11 +812,9 @@ struct SceneFrame: View {
             }
             .opacity(ramp(u, 0.3, 0.5))
             VStack(alignment: .leading, spacing: 12) { line(520, at: 0.5); line(590, at: 0.64); line(430, at: 0.78) }
-            MockCards()
-                .scaleEffect(0.84)
-                .frame(width: 500, height: 200)
-                .background(Color(white: 0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            MockImage.inChat(height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
                 .scaleEffect(0.95 + 0.05 * ramp(u, 1.15, 1.5), anchor: .topLeading)
                 .opacity(ramp(u, 1.15, 1.4))
             VStack(alignment: .leading, spacing: 12) { line(540, at: 1.95); line(380, at: 2.09) }
