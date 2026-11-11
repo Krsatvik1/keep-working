@@ -1,33 +1,38 @@
-# X launch post (draft, not posted)
+# X launch post (ready, not posted)
 
-Two posts: the main one carries the film, the reply carries the links (X shows posts with links to fewer
-people, so the link goes in the reply).
+The post comes from the research in `launch-x.md` (the parent session's). It's better than my first draft: it
+opens with the claim, and X no longer penalises links (July 2026), so the link stays in the post. The link goes
+to the download page rather than the repo: it has the films and the install guide, it's tracked by Vercel
+Analytics, and the README links there anyway.
 
-**Media for the main post:** `cuts/keep-working-x.mp4` (1920×1080, 60 fps, H.264 + AAC, 40 s, with sound).
-The captions carry it with the sound off.
+**Media:** `cuts/keep-working-x.mp4` (1920×1080, 60 fps, H.264 + AAC, 40 s, with sound). Native upload, no hashtags.
 
-## Main post (244 characters)
+## Main post
 
 ```
-I made a little desktop widget for my Claude sessions.
+I made a desktop widget so I can stop watching Claude Code work.
 
-It walks while Claude works, snaps a photo when a new image comes in, waves when Claude needs me, and celebrates when it's done. One click opens the chat.
+A little pixel guy walks your progress bar, snaps every image Claude makes, and waves when it needs you. One click takes you back to the chat.
 
 Free and open source, for macOS.
+krsatvik.xyz/get-keep-working
 ```
 
-## Reply (196 characters)
+## Reply 1 (straight away)
 
 ```
-Download: krsatvik.xyz/get-keep-working
-Code: github.com/Krsatvik1/keep-working
-
-It isn't notarized, so the first open needs Open Anyway in System Settings, Privacy & Security. The page shows how.
+Install in 3 steps: open the DMG and drag it to Applications, open it once, then System Settings › Privacy & Security › Open Anyway (it isn't notarized yet). Then right-click the desktop › Edit Widgets.
 ```
 
-The link preview uses the page's share image (the "needs you" card) automatically.
+## Reply 2 (optional, from launch-x.md)
+
+```
+Built on Claude Code's own session files. Thought you'd enjoy this @trq212 @alexalbert__
+```
 
 ## Before posting
 
-- Not tested on a Mac other than Satvik's. The first people to try it will be the test.
-- The character resembles Anthropic's Clawd (Satvik's call to keep it). No tags in the draft for that reason.
+- **Intel Macs:** v1.1 is built for Apple Silicon only (arm64). Intel Macs can't run it. Either rebuild as a
+  universal app or say "Apple Silicon" in the post.
+- **Second-Mac test:** still not done. The first people to try it will be the test.
+- The rest of the launch-day plan (timing, replies, Show HN, r/ClaudeAI) is in `launch-x.md`.
