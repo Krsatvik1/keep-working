@@ -57,7 +57,11 @@ enum ClawdMotion {
 
     /// Brisk trot: diagonal feet lift high and swing in turn, the body rides up between steps and squashes as a
     /// foot lands, arms swing behind the body's beat, eyes squint on each strike and glance at you once a cycle.
-    static let stride = 0.55   // seconds per full cycle; two steps (8 to a 4.4 s loop)
+    // Every loop repeats on the 2 s beat, and every one is in a calm key pose exactly on each beat: feet down,
+    // arms low, eyes ahead, no blink. The desktop can only swap one animation for another on a beat, so a swap
+    // (walking to standing at the end of the bar, any mood to the snapshot and back) is a cut between two key
+    // poses that match, never a jump from mid-stride.
+    static let stride = 0.5    // seconds per full cycle; two steps, four to a beat
     static func walk(_ t: Double) -> Pose {
         var p = Pose()
         let a = 2 * .pi * t / stride, s = sin(a), c = cos(a)
@@ -65,58 +69,55 @@ enum ClawdMotion {
         p.feet = [(-1.0 * c, upA), (1.0 * c, upB), (-1.0 * c, upA), (1.0 * c, upB)]
         p.lift = 0.6 * abs(s)
         p.squash = 0.12 * cos(2 * a)
-        let swing = 0.9 * sin(a - 0.9)          // arms lag the body
+        let swing = 0.9 * sin(a)                // level with the body on every beat, so a cut matches
         p.armL = -0.25 + swing
         p.armR = -0.25 - swing
-        let u = t.truncatingRemainder(dividingBy: 4.4)
-        p.eyeDX = 0.7 - 0.7 * (ramp(u, 1.8, 2.0) - ramp(u, 2.6, 2.8))   // a look at you, then back ahead
+        let u = t.truncatingRemainder(dividingBy: 4.0)
+        p.eyeDX = 0.7 - 0.7 * (ramp(u, 0.6, 0.8) - ramp(u, 1.2, 1.4))   // a look at you, then back ahead
         p.eyeDY = -0.25 * abs(sin(a - 0.6))
-        p.eyeOpen = blink(t, every: 2.2) * (1 - 0.3 * max(0, cos(2 * a)))
+        p.eyeOpen = blink(t, every: 4.0, at: 3.0) * (1 - 0.3 * max(0, cos(2 * a)))
         return p
     }
 
     /// Stopped at the end of the bar: breathing, then leaning out one way with an arm lifted, back, the other way.
     static func stand(_ t: Double) -> Pose {
         var p = Pose()
-        let u = t.truncatingRemainder(dividingBy: 4.4)
-        let look = ramp(u, 0.3, 0.6) - ramp(u, 1.6, 1.9) - (ramp(u, 2.4, 2.7) - ramp(u, 3.7, 4.0))
-        p.squash = 0.06 * sin(2 * .pi * t / 2.2)
+        let u = t.truncatingRemainder(dividingBy: 4.0)
+        let look = ramp(u, 0.3, 0.6) - ramp(u, 1.4, 1.7) - (ramp(u, 2.3, 2.6) - ramp(u, 3.4, 3.7))
+        p.squash = 0.06 * sin(2 * .pi * t / 2.0)
         p.eyeDX = 1.0 * look
         p.shift = 1.0 * look
         p.armL = -0.3 + (look < 0 ? 0.5 * -look : 0)
         p.armR = -0.3 + (look > 0 ? 0.5 * look : 0)
-        p.eyeOpen = blink(t, every: 2.2)
+        p.eyeOpen = blink(t, every: 4.0, at: 1.0)
         return p
     }
 
-    /// Needs you: two big hops at you, then one arm waving hard over its head while it sways and leans, a "?" bobbing.
-    static let waitLoop = 2.6
+    /// Needs you: a big hop at you, then one arm waving hard over its head while it sways and leans, a "?"
+    /// bobbing; settled back to the key pose by the end of each beat.
+    static let waitLoop = 2.0
     static func waiting(_ t: Double) -> Pose {
         var p = Pose()
         let u = t.truncatingRemainder(dividingBy: waitLoop)
-        if u < 1.3 {
-            let (lift, squash, air) = hop(u.truncatingRemainder(dividingBy: 0.65) / 0.65, height: u < 0.65 ? 1.8 : 1.2)
+        if u < 0.65 {
+            let (lift, squash, air) = hop(u / 0.65, height: 1.6)
             p.lift = lift; p.squash = squash
-            p.armL = air > 0 ? 1.3 : -0.4 + squash * 2
+            p.armL = air > 0 ? 1.3 : -0.3 + squash * 2
             p.armR = p.armL
         } else {
-            let w = sin(2 * .pi * (u - 1.3) / 0.36)
-            let sway = sin(2 * .pi * (u - 1.3) / 1.3)
-            p.shift = 1.2 * sway
-            p.eyeDX = 0.8 * (sway >= 0 ? 1 : -1) * min(1, abs(sway) * 3)
-            p.armL = -0.5
-            p.armR = 0.3 + 1.1 * max(0, w)
-            p.squash = 0.04 * w
-            // Settle the arms back to the crouch pose before the loop restarts.
-            let settle = ramp(u, waitLoop - 0.25, waitLoop)
-            p.armL += (-0.4 - p.armL) * settle
-            p.armR += (-0.4 - p.armR) * settle
-            p.shift *= 1 - settle
+            let w = sin(2 * .pi * (u - 0.65) / 0.36)
+            let sway = sin(2 * .pi * (u - 0.65) / 1.1)
+            let settle = ramp(u, 1.7, 1.95)
+            p.shift = 1.2 * sway * (1 - settle)
+            p.eyeDX = 0.8 * (sway >= 0 ? 1 : -1) * min(1, abs(sway) * 3) * (1 - settle)
+            p.armL = -0.5 + 0.2 * settle
+            p.armR = (0.3 + 1.1 * max(0, w)) * (1 - settle) - 0.3 * settle
+            p.squash = 0.04 * w * (1 - settle)
         }
         p.eyeDY = 0.35
-        p.eyeOpen = 1.25 * blink(t, every: waitLoop)
-        let bob = 0.35 * sin(2 * .pi * t / (waitLoop / 3))
-        p.marks = [Glyph(bits: question, x: 16.4, y: 1.2 + bob, scale: 0.6 + 0.06 * sin(2 * .pi * t / (waitLoop / 3)))]
+        p.eyeOpen = 1.25 * blink(t, every: 2.0, at: 1.3)
+        let bob = 0.35 * sin(2 * .pi * t / (waitLoop / 2))
+        p.marks = [Glyph(bits: question, x: 16.4, y: 1.2 + bob, scale: 0.6 + 0.06 * sin(2 * .pi * t / (waitLoop / 2)))]
         return p
     }
 
@@ -140,7 +141,7 @@ enum ClawdMotion {
                 p.marks = [Glyph(bits: star, x: 1.5, y: 0.5 + air, scale: 0.6, opacity: flash),
                            Glyph(bits: star, x: 17.5, y: 1.5 + air, scale: 0.5, opacity: flash)]
             } else if v < 0.5 {
-                p.armL = -0.8 + 0.6 * ramp(u, 1.85, 2.0)   // (the loop ends with arms at -0.2: meet them)
+                p.armL = -0.3 - 0.5 * ramp(u, 0.0, 0.2)    // from the key pose down into the crouch
             } else {
                 p.armL = 1.4 - 0.9 * ease((v - 0.75) / 0.25)
             }
@@ -149,7 +150,7 @@ enum ClawdMotion {
             let k = u - 1.1
             let (lift, squash, _) = hop(min(1, k / 0.5), height: 0.4)
             p.lift = lift; p.squash = squash * 0.6
-            p.armL = 0.5 - 0.7 * ramp(u, 1.75, 2.0)        // arms out, held, then down to meet the crouch
+            p.armL = 0.5 - 0.8 * ramp(u, 1.75, 2.0)        // arms out, held, then back to the key pose
             p.armR = p.armL
         }
         return p
@@ -159,13 +160,13 @@ enum ClawdMotion {
     static func resting(_ t: Double) -> Pose {
         var p = Pose()
         p.legs = false; p.lift = -1
-        p.squash = 0.05 * sin(2 * .pi * t / 3.0)
+        p.squash = 0.05 * sin(2 * .pi * t / 2.0)
         p.armL = -0.5; p.armR = -0.5
-        let u = t.truncatingRemainder(dividingBy: 9.0)
-        p.eyeDX = 1.0 * (ramp(u, 0.2, 0.5) - ramp(u, 2.2, 2.5)) - 1.0 * (ramp(u, 3.4, 3.7) - ramp(u, 5.4, 5.7))
+        let u = t.truncatingRemainder(dividingBy: 8.0)
+        p.eyeDX = 1.0 * (ramp(u, 0.3, 0.6) - ramp(u, 1.4, 1.7)) - 1.0 * (ramp(u, 2.3, 2.6) - ramp(u, 3.4, 3.7))
         p.shift = 1.0 * p.eyeDX
-        p.eyeOpen = blink(t, every: 4.5)
-        let s = ramp(u, 6.3, 6.8) - ramp(u, 8.0, 8.5)   // the stretch
+        p.eyeOpen = blink(t, every: 8.0, at: 5.0)
+        let s = ramp(u, 6.2, 6.6) - ramp(u, 7.4, 7.8)   // the stretch
         if s > 0 {
             p.armL = -0.5 + 1.9 * s; p.armR = p.armL
             p.squash -= 0.12 * s
@@ -179,12 +180,12 @@ enum ClawdMotion {
     static func sleeping(_ t: Double) -> Pose {
         var p = Pose()
         p.legs = false; p.lift = -1
-        let breath = sin(2 * .pi * t / 4.2)
+        let breath = sin(2 * .pi * t / 4.0)
         p.squash = 0.12 + 0.12 * breath
         p.armL = -0.8; p.armR = -0.8
         p.eyeOpen = 0.2; p.eyeDY = -0.2
         p.marks = (0..<3).map { i in
-            let k = (t / 4.2 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
+            let k = (t / 4.0 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
             return Glyph(bits: zed, x: 14.5 + 3 * k + 0.5 * sin(4 * .pi * k), y: 0.3 + 4.5 * k,
                          scale: 0.3 + 0.35 * k, opacity: sin(.pi * k))
         }
@@ -320,8 +321,8 @@ enum ClawdMotion {
     /// Every mood's motion repeats exactly after this many seconds (all its inner rhythms divide it), so it
     /// can be cut into a flip-book that loops without a seam.
     static func loop(_ m: Mood) -> Double {
-        switch m { case .working: return 4.4; case .waiting: return waitLoop; case .done: return 2.0
-                   case .resting: return 9.0; case .sleeping: return 4.2 }
+        switch m { case .working: return 4.0; case .waiting: return waitLoop; case .done: return 2.0
+                   case .resting: return 8.0; case .sleeping: return 4.0 }
     }
     /// Flip-book frames per second on the desktop: lively moods quicker, lazy ones slower and lighter.
     static func fps(_ m: Mood) -> Double {
@@ -343,9 +344,11 @@ enum ClawdMotion {
         }
     }
 
-    /// 1 = open; dips to 0 and back over 0.16 s once per `every` seconds.
-    static func blink(_ t: Double, every: Double) -> Double {
-        let u = t.truncatingRemainder(dividingBy: every)
+    /// 1 = open; dips to 0 and back over 0.16 s once per `every` seconds, `at` seconds into each cycle (kept
+    /// off the beat, so a swap never lands on a closed eye).
+    static func blink(_ t: Double, every: Double, at: Double = 1.0) -> Double {
+        var u = (t - at).truncatingRemainder(dividingBy: every)
+        if u < 0 { u += every }
         return u < 0.16 ? 1 - sin(.pi * u / 0.16) : 1
     }
 

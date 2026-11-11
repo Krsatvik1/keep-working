@@ -83,3 +83,8 @@ New image: when the hero session's last image changes, the hero plays a one-off 
 camera, the flash fires, the image develops from bright and soft into the faded background, then a happy bounce).
 `ImageArrival` notices the change and starts the act on the next 6 s boundary so the flip-book begins at frame 0.
 Pulse Preview's **I** page shows the three options that were tried (magnifier, look up, snapshot).
+
+Swaps between animations (walking and standing at the end of the bar, a mood change, the snapshot) are cuts,
+never crossfades: two flip-books overlapping glow white on the desktop. To make the cuts invisible, every loop
+repeats on the 2 s beat and sits in the same calm key pose on each beat (feet down, arms low, eyes open), which
+is the only moment the desktop can swap one animation for another.

@@ -636,13 +636,17 @@ struct Hero: View {
     }
 
     @ViewBuilder private func character(in r: CGRect) -> some View {
+        // A different loop is a different view, swapped in a cut: both sit on the same key pose at the beat,
+        // and a crossfade would show two characters at once (on the desktop the overlap glows white).
+        let key = "\(mood)|\(walkingNow)|\(heroAct.map { $0.rawValue } ?? "")"
         if compact {
-            ClawdLoop(mood: mood, px: Self.smallPx, act: heroAct).offset(x: r.minX, y: r.minY)
-                .animation(Beat.morph, value: heroAct)
+            ClawdLoop(mood: mood, px: Self.smallPx, act: heroAct)
+                .id(key).transition(.identity).transaction { $0.animation = nil }
+                .offset(x: r.minX, y: r.minY)
         } else {
             let w = ClawdSprite.size(px: Self.heroPx).width
             ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct)
-                .animation(Beat.morph, value: heroAct)
+                .id(key).transition(.identity).transaction { $0.animation = nil }
                 .scaleEffect(x: Glide.at(film, tick, span: 0.45) { facingLeft(at: $0) ? -1 : 1 })
                 .animation(Beat.morph, value: facingLeft)
                 .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
