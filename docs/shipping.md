@@ -48,3 +48,10 @@ Most work for the weakest result. Not recommended.
     drawn by `Tools/make-icons.swift`, and nothing is copied from Claude.app any more.
   - Blocker 1, character: Satvik's call is to keep it as is. It still resembles Anthropic's Clawd, so weigh that
     before the repo goes public.
+
+## Public (11 Nov 2026)
+
+Satvik's go: the repo is public and open source. v1.0 is on GitHub Releases as `KeepWorking.dmg` (the app beside an
+Applications shortcut; `release.sh` builds it). The download page is krsatvik.xyz/get-keep-working, which links
+`releases/latest/download/KeepWorking.dmg`. Still Apple Development–signed and not notarized; the second-Mac test is
+still untested.
