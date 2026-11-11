@@ -72,7 +72,9 @@ enum WalkClock {
 /// reply. Whichever holds the spot keeps it for at least `hold` seconds, and never loses it mid-snapshot.
 enum HeroPick {
     private static let d = UserDefaults.standard
-    static let hold = 5.0
+    /// 15 s, not less: with several busy sessions the newest reply hops between them every few seconds, and each
+    /// hop is a full widget rebuild that macOS then redraws (measured: ~1 rebuild every 3 s with four sessions).
+    static let hold = 15.0
 
     /// The hero's id, and when to look again if a change is being held off.
     static func pick(_ sessions: [SessionSnapshot], now: Double) -> (id: String?, recheck: Double?) {

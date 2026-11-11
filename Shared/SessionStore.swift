@@ -458,32 +458,52 @@ extension SessionSnapshot {
 
 
 extension SessionStore {
-    /// The last image in a transcript (pasted by you or read by Claude), shrunk to a small JPEG. Reads from the
-    /// end of the file backwards, at most 32 MB, so a long session stays cheap. Nil when there is none.
+    /// The last image in a transcript (pasted by you or read by Claude), shrunk to a small JPEG. Nil when there
+    /// is none. Remembered per transcript: an unchanged file costs nothing, and a file that has grown is only
+    /// searched in the part written since (transcripts only ever get appended to). The first look at a file
+    /// reads from the end backwards, at most 32 MB.
     static func lastImage(transcript path: String, maxPixels: Int = 520) -> Data? {
         guard let h = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? h.close() }
         let size = (try? h.seekToEnd()) ?? 0
         guard size > 0 else { return nil }
-        let marker = Data("\"type\":\"base64\"".utf8), dataKey = Data("\"data\":\"".utf8), quote = UInt8(ascii: "\"")
+        imageLock.lock(); let known = imageCache[path]; imageLock.unlock()
+        if let known, known.size == size { return known.image }
+        if let known, size > known.size {
+            // Only what was appended (with a little overlap, in case the marker straddles the old end).
+            let from = known.size > 256 ? known.size - 256 : 0
+            try? h.seek(toOffset: from)
+            let found = (try? h.readToEnd()).flatMap { image(in: $0, maxPixels: maxPixels) }
+            let image = found ?? known.image
+            remember(path, size, image)
+            return image
+        }
         var window: UInt64 = 4 << 20
         while true {
             let start = size > window ? size - window : 0
             try? h.seek(toOffset: start)
             guard let buf = try? h.readToEnd() else { return nil }
-            if let m = buf.range(of: marker, options: .backwards),
-               let d = buf.range(of: dataKey, in: m.upperBound..<min(buf.endIndex, m.upperBound + 200)) {
-                var b64: Data
-                if let q = buf[d.upperBound...].firstIndex(of: quote) {
-                    b64 = buf[d.upperBound..<q]
-                } else { return nil }
-                b64 = Data(b64.filter { $0 != UInt8(ascii: "\\") })
-                guard let raw = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
-                return thumbnail(raw, maxPixels: maxPixels)
-            }
-            if start == 0 || window >= 32 << 20 { return nil }
+            if let image = image(in: buf, maxPixels: maxPixels) { remember(path, size, image); return image }
+            if start == 0 || window >= 32 << 20 { remember(path, size, nil); return nil }
             window *= 2
         }
+    }
+
+    private static var imageCache: [String: (size: UInt64, image: Data?)] = [:]
+    private static let imageLock = NSLock()
+    private static func remember(_ path: String, _ size: UInt64, _ image: Data?) {
+        imageLock.lock(); imageCache[path] = (size, image); imageLock.unlock()
+    }
+
+    /// The last complete base64 image in a chunk of transcript, as a thumbnail.
+    private static func image(in buf: Data, maxPixels: Int) -> Data? {
+        let marker = Data("\"type\":\"base64\"".utf8), dataKey = Data("\"data\":\"".utf8), quote = UInt8(ascii: "\"")
+        guard let m = buf.range(of: marker, options: .backwards),
+              let d = buf.range(of: dataKey, in: m.upperBound..<min(buf.endIndex, m.upperBound + 200)),
+              let q = buf[d.upperBound...].firstIndex(of: quote) else { return nil }
+        let b64 = Data(buf[d.upperBound..<q].filter { $0 != UInt8(ascii: "\\") })
+        guard let raw = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
+        return thumbnail(raw, maxPixels: maxPixels)
     }
 
     private static func thumbnail(_ raw: Data, maxPixels: Int) -> Data? {

@@ -90,11 +90,26 @@ final class PulseModel: ObservableObject {
         let images = next.filter { $0.state == .running || $0.state == .waiting }
             .map { "\($0.id):\($0.transcript.flatMap { SessionStore.lastImage(transcript: $0) }?.count ?? 0)" }
         let key = next.map(\.shownKey).joined(separator: "\n") + "|\(lead?.id ?? "")|" + images.joined(separator: ",")
-        if key != shown {
+        // Only what someone must not miss reloads at once: a session turning to "needs you" or "done" (bursts still
+        // coalesce to one every 4 s). Everything else (the front session changing, working/idle flips between tool
+        // calls, step text) waits, at most one reload every 15 s. Measured with four busy sessions, reloading on
+        // every visible change rebuilt the widget every ~3 s and kept NotificationCenter at ~11% CPU.
+        let urgent = next.filter { $0.state == .waiting || $0.state == .done }.map(\.id).sorted().joined(separator: ",")
+        guard key != shown else { return }
+        if urgent != shownUrgent || Date().timeIntervalSince(lastWidgetReload) >= 15 {
             shown = key
+            shownUrgent = urgent
+            lastWidgetReload = Date()
             WidgetCenter.shared.reloadAllTimelines()
+        } else if pending == nil {
+            // A small change: look again once the 15 s are up.
+            let work = DispatchWorkItem { [weak self] in self?.pending = nil; self?.refresh() }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15 - Date().timeIntervalSince(lastWidgetReload), execute: work)
         }
     }
+    private var shownUrgent = ""
+    private var lastWidgetReload = Date.distantPast
 
     func toggleLaunchAtLogin() {
         do {
