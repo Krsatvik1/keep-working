@@ -1071,8 +1071,14 @@ enum FilmMain {
         let ffmpeg = Process()
         ffmpeg.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
         ffmpeg.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "\(w)x\(h)",
-                            "-r", "\(Script.fps)", "-i", "-", "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "15",
-                            "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
+                            "-r", "\(Script.fps)", "-i", "-", "-an",
+                            // The frames are 8-bit and the camera zooms soft shadows 2–3x, which turns each colour step
+                            // into a wide band. Deband smooths those steps, a fine grain keeps them from coming back in
+                            // the encode, and aq-mode 3 spends bits on dark flat areas.
+                            "-vf", "format=gbrp16le,deband=1thr=0.012:2thr=0.012:3thr=0.012:range=28:blur=1:coupling=1,noise=alls=3:allf=t+u,format=yuv420p",
+                            "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-x264-params", "aq-mode=3",
+                            "-pix_fmt", "yuv420p", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+                            "-movflags", "+faststart", out]
         let pipe = Pipe()
         ffmpeg.standardInput = pipe
         try! ffmpeg.run()

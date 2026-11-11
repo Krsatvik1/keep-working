@@ -32,17 +32,22 @@ struct PulseEntry: TimelineEntry {
     var glide: Double? = nil
 }
 
-/// The walk along the bar runs on its own clock, which stops while the hero takes a snapshot. Without this the
-/// walker freezes for the act and then lurches to where the walk "should" be by now; with it, it carries on from
-/// the very spot it stopped on. `before`/`after` are the beats the walk has lost to acts, before and after the
-/// latest one; `actTick` is the beat that act began on.
+/// The walk along the bar runs on its own clock. It stops for a snapshot act, and whenever the hero isn't
+/// working (needs you, finished, paused, asleep), and picks up again from the very spot it stopped on. The
+/// character never follows the session's step count, and never jumps. `before`/`after` are the beats the walk
+/// has lost before and after the latest act (`actTick`); `pausedAt` is the beat a non-working stretch began.
 struct WalkPlan: Equatable {
     var before = 0, after = 0
     var actTick: Int? = nil
+    var pausedAt: Int? = nil
     static let actBeats = Int((ClawdMotion.actLength / Beat.seconds).rounded())
 
     /// The walk's own beat at timeline beat `t`.
     func tick(_ t: Int) -> Int {
+        if let p = pausedAt, t >= p { return moving(p - 1) }
+        return moving(t)
+    }
+    private func moving(_ t: Int) -> Int {
         guard let a = actTick else { return t - after }
         if t < a { return t - before }
         if t < a + Self.actBeats { return a - 1 - before }   // standing still for the act
@@ -50,8 +55,6 @@ struct WalkPlan: Equatable {
     }
 }
 
-/// Notices when the hero session's last image changes and schedules the snapshot act for it. Kept in the
-/// extension's own defaults, so every widget size and every reload agrees on when the act runs.
 enum ImageArrival {
     private static let d = UserDefaults.standard
 
@@ -92,9 +95,24 @@ enum ImageArrival {
 
     /// The walk's pauses so far, for every entry of a timeline (acts long past just leave their lost beats).
     static var walkPlan: WalkPlan {
-        let a = d.integer(forKey: "walk.actTick")
+        let a = d.integer(forKey: "walk.actTick"), p = d.integer(forKey: "walk.pausedAt")
         return WalkPlan(before: d.integer(forKey: "walk.before"), after: d.integer(forKey: "walk.after"),
-                        actTick: a > 0 ? a : nil)
+                        actTick: a > 0 ? a : nil, pausedAt: p > 0 ? p : nil)
+    }
+
+    /// The hero stops working: the walk stands still from the next beat. It starts working again: the walk
+    /// carries on from there, having lost the beats it stood still. The change shows on the next beat (a mood
+    /// change mid-beat is held until then), so that is where the walk stops or starts too.
+    static func walk(working: Bool, nextTick: Int) {
+        let paused = d.integer(forKey: "walk.pausedAt")
+        if !working && paused == 0 {
+            d.set(nextTick, forKey: "walk.pausedAt")
+        } else if working && paused > 0 {
+            let lost = max(0, nextTick - paused)
+            d.set(d.integer(forKey: "walk.after") + lost, forKey: "walk.after")
+            d.set(d.integer(forKey: "walk.before") + lost, forKey: "walk.before")
+            d.removeObject(forKey: "walk.pausedAt")
+        }
     }
 
     /// A stable hash (Swift's own is seeded per process).
@@ -176,19 +194,29 @@ struct PulseProvider: TimelineProvider {
             UserDefaults.standard.set(hero.id, forKey: key + ".id")
             UserDefaults.standard.set(hero.mood.rawValue, forKey: key + ".mood")
         }
-        // A reload lands mid-beat: start from where the walker is now and finish its step in the time left.
+        // A reload lands mid-beat, and reaches the screen a second or so after it is made: whichever entry is
+        // current by then is shown at once, without a glide. So the rest of this beat gets an entry every half
+        // second, each with the walker where it really is at that moment, gliding on to the next.
         let into = base.date.timeIntervalSince1970 / beat
-        let phase = into - into.rounded(.down)
-        if phase < 0.92 {
-            base.beatPhase = phase
-            var finish = base
-            finish.date = base.date.addingTimeInterval(0.05)
-            finish.beatPhase = nil
-            finish.characterMood = base.characterMood
-            finish.glide = max(0.1, (1 - phase) * beat - 0.05)
-            entries.append(finish)
-            entries.sort { $0.date < $1.date }
+        base.beatPhase = into - into.rounded(.down)
+        let nextBeat = start
+        var t = (base.date.timeIntervalSince1970 / 0.5).rounded(.down) * 0.5 + 0.5
+        while t < nextBeat - 0.01 {
+            var e = base
+            e.date = Date(timeIntervalSince1970: t)
+            let k = t / beat
+            e.beatPhase = k - k.rounded(.down)
+            e.glide = 0.5
+            entries.append(e)
+            t += 0.5
         }
+        entries.sort { $0.date < $1.date }
+        if let i = entries.firstIndex(where: { $0.date.timeIntervalSince1970 >= nextBeat - 0.01 }), i > 0 {
+            entries[i].glide = nil
+        }
+
+        ImageArrival.walk(working: ordered(base.sessions).first?.state == .running,
+                          nextTick: Int((base.date.timeIntervalSince1970 / beat).rounded(.down)) + 1)
         let plan = ImageArrival.walkPlan
         base.walk = plan
         for i in entries.indices { entries[i].walk = plan }
@@ -817,25 +845,21 @@ struct Hero: View {
     private var walkingNow: Bool { heroAct == nil && walks && position(at: tick) != position(at: tick - 1) }
     private var facingLeft: Bool { facingLeft(at: tick) }
     private func facingLeft(at t: Int) -> Bool {
-        guard walks else { return false }
         let c = ((walkTick(t) % 12) + 12) % 12
         return c >= 6
     }
     /// During a one-off act the walker holds the spot, and the way it faced, from the beat before the act.
     private func walkTick(_ t: Int) -> Int {
-        if let walkPlan, walkPlan.actTick != nil || walkPlan.after != 0 { return walkPlan.tick(t) }
+        if let walkPlan { return walkPlan.tick(t) }
         guard heroAct != nil, let actTick else { return t }
         return min(t, actTick - 1)
     }
 
+    /// Where it stands on the bar: always the walk's own position, never the session's step. Not working,
+    /// the walk is paused, so it stays where it stopped.
     private func position(at t: Int) -> CGFloat {
-        if walks {
-            let c = ((walkTick(t) % 12) + 12) % 12
-            return c <= 5 ? CGFloat(c) / 5 : c == 6 ? 1 : CGFloat(11 - c) / 5
-        }
-        guard s.stepsTotal > 1 else { return 0 }
-        let i = min(s.stepsDone, s.stepsTotal - 1)
-        return CGFloat(i) / CGFloat(s.stepsTotal - 1)
+        let c = ((walkTick(t) % 12) + 12) % 12
+        return c <= 5 ? CGFloat(c) / 5 : c == 6 ? 1 : CGFloat(11 - c) / 5
     }
 
     private var chipLabel: String {

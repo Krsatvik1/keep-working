@@ -445,10 +445,12 @@ enum PulseLink {
 // MARK: - What the widget shows
 
 extension SessionSnapshot {
-    /// Only what the widget draws: a change to anything else (a transcript written again, the exact time of
-    /// the last write) must not reload it, since every reload redraws the widget from scratch.
+    /// Only what the widget draws, minus the "2m" ages: a change to anything else (a transcript written again,
+    /// the exact time of the last write) must not reload it, since every reload redraws the widget from scratch.
+    /// The ages are refreshed by the app's once-a-minute timer instead: ten sessions each tick over at a
+    /// different second, which alone reloaded the widget every few seconds.
     var shownKey: String {
-        "\(id)|\(title)|\(project)|\(kind)|\(state)|\(stepsDone)/\(stepsTotal)|\(detail ?? "")|\(lastActivity.shortAgo)"
+        "\(id)|\(title)|\(project)|\(kind)|\(state)|\(stepsDone)/\(stepsTotal)|\(detail ?? "")"
     }
 }
 

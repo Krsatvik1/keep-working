@@ -54,7 +54,7 @@ final class PulseModel: ObservableObject {
         }
         // Keeps relative times and stale "running" states honest even when no file changes.
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.refresh(ages: true) }
         }
     }
 
@@ -72,11 +72,16 @@ final class PulseModel: ObservableObject {
 
     /// What the widget showed after the last reload: what it draws, plus the hero's last image.
     private var shown = ""
+    private var shownAges = ""
 
-    func refresh() {
+    /// `ages`: also reload when only the "2m" ages have changed (the once-a-minute timer).
+    func refresh(ages: Bool = false) {
         lastReload = Date()
         let next = SessionStore.load(limit: 10)
         sessions = next
+        let ageKey = next.map(\.lastActivity.shortAgo).joined(separator: ",")
+        if ages && ageKey != shownAges { shown = "" }
+        shownAges = ageKey
         // Reload only when something the widget draws has changed. A working session writes its transcript
         // many times a minute; reloading on each write redrew the widget mid-step every few seconds.
         let hero = next.first { $0.state == .waiting } ?? next.first { $0.state == .running } ?? next.first
