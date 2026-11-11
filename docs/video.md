@@ -128,3 +128,6 @@ as the download card arrives (`MUSIC_EDIT=35.95:20.0 Tools/film-sfx.py ...`), so
 ~39.5 s and stops. The faded version is kept as `cuts/keep-working-v5-desktop-fadeout.mp4`.
 
 Satvik on the new music ending: sounds right. Final: `cuts/keep-working-v5-desktop.mp4` (full quality), `-preview.mp4` (13 MB).
+
+End card link (11 Nov): the card now says `krsatvik.xyz/get-keep-working`, the download page, instead of the private
+repo. Re-rendered with the same music edit. The earlier final is kept as `cuts/keep-working-v5-desktop-github-link.mp4`.

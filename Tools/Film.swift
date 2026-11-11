@@ -477,7 +477,7 @@ struct FilmFrame: View {
                 .padding(.horizontal, 40).frame(height: 96)
                 .background(Self.ink, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                 .padding(.top, 44).opacity(show(0.24)).offset(y: rise(0.24))
-                Text("github.com/Krsatvik1/keep-working")
+                Text("krsatvik.xyz/get-keep-working")
                     .font(.system(size: 36, weight: .medium)).tracking(-0.5).foregroundStyle(Self.ink.opacity(0.5))
                     .padding(.top, 30).opacity(show(0.4)).offset(y: rise(0.4))
             }

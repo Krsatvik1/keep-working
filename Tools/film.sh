@@ -16,6 +16,6 @@ for f in Shared/SessionStore.swift Widget/KeepWorkingWidget.swift Widget/ClawdMo
   if [[ "$REV" == worktree ]]; then cp "$f" "$SRC/"; else git show "$REV:$f" > "$SRC/$(basename $f)"; fi
 done
 swiftc -O -parse-as-library -D RENDER_HARNESS \
-  "$SRC/SessionStore.swift" "$SRC/KeepWorkingWidget.swift" "$SRC/ClawdMotion.swift" Tools/Film.swift \
+  "$SRC/SessionStore.swift" "$SRC/KeepWorkingWidget.swift" "$SRC/ClawdMotion.swift" Tools/Film.swift Tools/InstallFilm.swift \
   -o build/film
 build/film "$@"
