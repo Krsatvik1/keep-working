@@ -7,16 +7,17 @@ Analytics, and the README links there anyway.
 
 **Media:** `cuts/keep-working-x.mp4` (1920×1080, 60 fps, H.264 + AAC, 40 s, with sound). Native upload, no hashtags.
 
-## Main post
+## Main post (Satvik's final wording, 11 Nov)
 
 ```
-I made a desktop widget so I can stop watching Claude Code work.
+I kept tabbing back to check what Claude was doing.
 
-A little pixel guy walks your progress bar, snaps every image Claude makes, and waves when it needs you. One click takes you back to the chat.
+Until @claudeai and @bcherny ship a native widget, use this to Keep Working for free.
 
-Free and open source, for macOS.
-krsatvik.xyz/get-keep-working
+macOS → krsatvik.xyz/get-keep-working
 ```
+
+The tags are in the post, so skip Reply 2 below (no second round of tagging).
 
 ## Reply 1 (straight away)
 
