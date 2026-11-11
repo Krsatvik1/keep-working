@@ -568,10 +568,15 @@ struct ClawdLoop: View {
             }
         }
         #else
-        FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
-        .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
-        .compositingGroup()
-        .opacity(ClawdSprite.tone(mood, dimmed: dimmed))
+        if dimmed {
+            // The dimmed desktop draws none of the flip-book (its spinning masks), so a still pose stands in.
+            sprite(0, toned: true)
+        } else {
+            FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
+            .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
+            .compositingGroup()
+            .opacity(ClawdSprite.tone(mood, dimmed: dimmed))
+        }
         #endif
     }
 
@@ -603,10 +608,15 @@ struct WalkerBook: View {
             }
         }
         #else
-        FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
-            .frame(width: width, height: ClawdSprite.size(px: px).height)
-            .compositingGroup()
-            .opacity(ClawdSprite.tone(.working, dimmed: dimmed))
+        if dimmed {
+            // Still, where the walk has got to at this update (the flip-book doesn't draw when dimmed).
+            strip(Date().timeIntervalSince1970.truncatingRemainder(dividingBy: ClawdMotion.Walk.cycle) - offset, toned: true)
+        } else {
+            FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
+                .frame(width: width, height: ClawdSprite.size(px: px).height)
+                .compositingGroup()
+                .opacity(ClawdSprite.tone(.working, dimmed: dimmed))
+        }
         #endif
     }
 
