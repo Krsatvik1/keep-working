@@ -111,3 +111,13 @@ S13 github.com/handsome-rich/claude-buddy · S14 ai.miraheze.org/wiki/Claude_Des
 S17 hub.causo.ai/guides/product-hunt-launch-2026-realistic-playbook · S19 kompozy.io/guides/x-engagement-bait-detection-update ·
 X posts: x.com/FarouqAldori/status/1998432542173569438, x.com/the_cyw/status/2075033876930724339 (and its quotes),
 x.com/edwardluox/status/2078111197212414447
+
+## Tracking (set up 11 Nov)
+
+- **Visits:** Vercel Web Analytics on krsatvik.xyz (no cookies): vercel.com → portfolio → Analytics, filter the
+  page `/get-keep-working`; referrers show where visits came from (x.com, t.co). Google Analytics, which sets
+  cookies, is kept off this page. The first 2–3 views are our own test visits.
+- **Downloads:** GitHub counts every DMG download:
+  `gh api repos/Krsatvik1/keep-working/releases --jq '.[].assets[] | {name, download_count}'`.
+- **Search:** Search Console property `https://www.krsatvik.xyz/` (verified by the GA tag on the home page;
+  removing that tag un-verifies it). Indexing of `/get-keep-working` requested.
