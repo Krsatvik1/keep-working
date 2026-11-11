@@ -470,7 +470,6 @@ enum ClawdMotion {
 
 /// Draws one moment of the character. `t` is wall-clock seconds; quantise it to choose a frame rate.
 struct ClawdSprite: View {
-    @Environment(\.dimmed) private var dimmed
     let mood: Mood
     let t: Double
     var px: CGFloat = 6
@@ -488,18 +487,6 @@ struct ClawdSprite: View {
         let f = ClawdMotion.frame(pose ?? act.map { var p = ClawdMotion.act($0, t: t); p.turn *= turn; return p }
             ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn))
         let py = px * 1.7
-        if dimmed {
-            // The dimmed desktop doesn't draw a Canvas at all, so the same pixels go in as shapes instead.
-            let H = Self.rows * py
-            ZStack(alignment: .topLeading) {
-                SpriteShape(frame: f, px: px, height: H).fill(color)
-                ForEach(Array(f.marks.enumerated()), id: \.offset) { _, g in
-                    MarkShape(glyph: g, px: px, height: H).fill(color).opacity(max(0, min(1, g.opacity)))
-                }
-            }
-            .frame(width: Self.cols * px, height: H)
-            .accessibilityHidden(true)
-        } else {
         Canvas { ctx, size in
             let H = size.height
             func rect(_ b: ClawdMotion.Box) -> CGRect {
@@ -531,50 +518,16 @@ struct ClawdSprite: View {
         }
         .frame(width: Self.cols * px, height: Self.rows * py)
         .accessibilityHidden(true)
-        }
-    }
-
-    /// The body with its eye holes cut out, as one shape.
-    private struct SpriteShape: Shape {
-        let frame: ClawdMotion.Frame, px: CGFloat, height: CGFloat
-        func path(in r: CGRect) -> Path {
-            let py = px * 1.7
-            func rect(_ b: ClawdMotion.Box) -> Path {
-                Path(CGRect(x: (b.x + 1) * px, y: height - (b.y + b.h) * py, width: b.w * px, height: b.h * py))
-            }
-            var solid = Path()
-            for b in frame.solid { solid = solid.union(rect(b)) }
-            for h in frame.holes { solid = solid.subtracting(rect(h)) }
-            return solid
-        }
-    }
-
-    /// A mark (the "?", the z's, the sparkles) as a shape.
-    private struct MarkShape: Shape {
-        let glyph: ClawdMotion.Glyph, px: CGFloat, height: CGFloat
-        func path(in r: CGRect) -> Path {
-            let py = px * 1.7, unit = px * glyph.scale
-            let top = height - glyph.y * py - CGFloat(glyph.bits.count) * unit
-            var path = Path()
-            for (y, row) in glyph.bits.enumerated() {
-                for (x, ch) in row.enumerated() where ch == "1" {
-                    path.addRect(CGRect(x: (glyph.x + 1) * px + CGFloat(x) * unit, y: top + CGFloat(y) * unit, width: unit, height: unit))
-                }
-            }
-            return path
-        }
     }
 
     /// Solid ink when `toned` is off, so stacked flip-book frames never add up to a brighter patch; the
     /// flip-book applies the mood's shade once over the whole stack instead.
     var toned = true
     private var color: AnyShapeStyle {
-        // Dimmed, macOS turns colour into translucent white: solid white keeps the character crisp.
-        let ink: Color = dimmed ? .white : mood == .waiting ? Pulse.clay : .primary
-        return AnyShapeStyle(ink.opacity(toned ? ClawdSprite.tone(mood, dimmed: dimmed) : 1))
+        let ink: Color = mood == .waiting ? Pulse.clay : .primary
+        return AnyShapeStyle(ink.opacity(toned ? ClawdSprite.tone(mood) : 1))
     }
-    static func tone(_ m: Mood, dimmed: Bool = false) -> Double {
-        if dimmed { return m == .resting || m == .sleeping ? 0.75 : 1 }
+    static func tone(_ m: Mood) -> Double {
         switch m { case .waiting: return 1; case .working, .done: return 0.85; case .resting, .sleeping: return 0.45 }
     }
 }
@@ -595,7 +548,6 @@ struct ClawdLoop: View {
     var facing = 1.0
 
     @Environment(\.filmTime) private var film
-    @Environment(\.dimmed) private var dimmed
 
     var body: some View {
         let fps = act == nil ? ClawdMotion.fps(mood) : 15
@@ -612,11 +564,10 @@ struct ClawdLoop: View {
             }
         }
         #else
-        // Dimmed, the frames are drawn as shapes (ClawdSprite switches itself): the dimmed desktop skips a Canvas.
         FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
         .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
         .compositingGroup()
-        .opacity(ClawdSprite.tone(mood, dimmed: dimmed))
+        .opacity(ClawdSprite.tone(mood))
         #endif
     }
 
@@ -635,7 +586,6 @@ struct WalkerBook: View {
     var px: CGFloat = 4.5
 
     @Environment(\.filmTime) private var film
-    @Environment(\.dimmed) private var dimmed
 
     var body: some View {
         let fps = ClawdMotion.Walk.fps
@@ -651,7 +601,7 @@ struct WalkerBook: View {
         FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
             .frame(width: width, height: ClawdSprite.size(px: px).height)
             .compositingGroup()
-            .opacity(ClawdSprite.tone(.working, dimmed: dimmed))
+            .opacity(ClawdSprite.tone(.working))
         #endif
     }
 

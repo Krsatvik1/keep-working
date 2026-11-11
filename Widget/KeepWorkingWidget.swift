@@ -235,7 +235,6 @@ private struct HeroImageKey: EnvironmentKey { static let defaultValue: Data? = n
 private struct HeroActKey: EnvironmentKey { static let defaultValue: ClawdMotion.Act? = nil }
 private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
 private struct WalkOffsetKey: EnvironmentKey { static let defaultValue = 0.0 }
-private struct DimmedKey: EnvironmentKey { static let defaultValue = false }
 private struct StandWKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct FilmTimeKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct DevelopAmountKey: EnvironmentKey { static let defaultValue: Double? = nil }
@@ -258,12 +257,6 @@ enum Glide {
 }
 
 extension EnvironmentValues {
-    /// The desktop is showing widgets dimmed (another app is in front): macOS draws every colour as translucent
-    /// white over the wallpaper, so the widget switches to a look made for that: solid white, no photo, no glow.
-    var dimmed: Bool {
-        get { self[DimmedKey.self] }
-        set { self[DimmedKey.self] = newValue }
-    }
     var walkOffset: Double {
         get { self[WalkOffsetKey.self] }
         set { self[WalkOffsetKey.self] = newValue }
@@ -376,7 +369,6 @@ extension SessionKind {
 
 /// The 16pt mark in front of a list row. Each state differs by shape, not only colour.
 struct RingMark: View {
-    @Environment(\.dimmed) private var dimmed
     @Environment(\.pulseTick) var tick
     @Environment(\.filmTime) var film
     let s: SessionSnapshot
@@ -389,8 +381,8 @@ struct RingMark: View {
         ZStack {
             switch s.state {
             case .waiting:
-                Circle().fill(dimmed ? Color.white : Pulse.clay).padding(size * 0.22)
-                Circle().stroke((dimmed ? Color.white : Pulse.clay).opacity(0.45 - 0.33 * h), lineWidth: size * 0.18)
+                Circle().fill(Pulse.clay).padding(size * 0.22)
+                Circle().stroke(Pulse.clay.opacity(0.45 - 0.33 * h), lineWidth: size * 0.18)
                     .padding(size * 0.13)
                     .scaleEffect(0.85 + 0.30 * h)
             case .running where s.stepsTotal > 0:
@@ -659,7 +651,6 @@ struct StageKey: PreferenceKey {
 
 struct Hero: View {
     @Environment(\.widgetRenderingMode) private var mode
-    @Environment(\.dimmed) private var dimmed
     @Environment(\.heroImage) private var heroImage
     @Environment(\.heroAct) private var heroAct
     @Environment(\.imageDeveloping) private var developing
@@ -698,8 +689,7 @@ struct Hero: View {
                 // The last image in the conversation, faded right back so the text stays the subject.
                 // A clear view sets the size, so the filled image can't push the card wider.
                 // A freshly snapped image starts bright and soft, then develops into place over the next beat.
-                // Dimmed, a photo turns to grey mush behind the text, so it's left out.
-                if !dimmed, let heroImage, let ns = NSImage(data: heroImage) {
+                if let heroImage, let ns = NSImage(data: heroImage) {
                     let dv = developAmount ?? (developing ? 1 : 0)
                     Color.clear
                         .overlay(Image(nsImage: ns).resizable().scaledToFill().blur(radius: 6 * dv))
@@ -713,7 +703,7 @@ struct Hero: View {
                 // The breathing glow: one fixed layer whose opacity glides, since gradients don't interpolate.
                 card.fill(LinearGradient(colors: [Pulse.clay.opacity(0.12), Pulse.clay.opacity(0.05)],
                                          startPoint: .top, endPoint: .bottom))
-                    .opacity(s.state == .waiting && !dimmed ? Glide.pulse(film, tick) : 0)
+                    .opacity(s.state == .waiting ? Glide.pulse(film, tick) : 0)
             }
             .animation(Beat.ease, value: tick)
             // The flash comes up fast and dies away slowly.
@@ -804,8 +794,8 @@ struct Hero: View {
     private var chip: some View {
         HStack(spacing: 7) {
             if s.state == .waiting {
-                Circle().fill(dimmed ? Color.white : Pulse.clay).frame(width: 8, height: 8)
-                    .overlay(Circle().stroke((dimmed ? Color.white : Pulse.clay).opacity(0.5 - 0.4 * Glide.pulse(film, tick)), lineWidth: 3)
+                Circle().fill(Pulse.clay).frame(width: 8, height: 8)
+                    .overlay(Circle().stroke(Pulse.clay.opacity(0.5 - 0.4 * Glide.pulse(film, tick)), lineWidth: 3)
                         .padding(-2 - 3 * Glide.pulse(film, tick)))
             } else {
                 RingMark(s: s, size: 12)
@@ -831,7 +821,6 @@ struct Hero: View {
     }
 
     private var chipColor: AnyShapeStyle {
-        if dimmed { return AnyShapeStyle(.primary) }
         switch s.state {
         case .waiting: return AnyShapeStyle(Pulse.clayLabel)
         case .done: return AnyShapeStyle(Pulse.green)
@@ -858,8 +847,6 @@ struct Hero: View {
     }
 
     private var background: AnyShapeStyle {
-        // Dimmed, dark fills vanish into the wallpaper; a faint white keeps the card's edge.
-        if dimmed { return AnyShapeStyle(Color.white.opacity(s.state == .waiting ? 0.16 : 0.09)) }
         if s.state == .waiting {
             return AnyShapeStyle(LinearGradient(colors: [Pulse.clay.opacity(0.22), Pulse.clay.opacity(0.07)],
                                                 startPoint: .top, endPoint: .bottom))
@@ -871,7 +858,6 @@ struct Hero: View {
 // MARK: - List row
 
 struct ListRow: View {
-    @Environment(\.dimmed) private var dimmed
     @Environment(\.widgetRenderingMode) private var mode
     @Environment(\.pulseTick) private var tick
     @Environment(\.filmTime) private var film
@@ -903,7 +889,7 @@ struct ListRow: View {
             }
             .padding(.horizontal, 6)
             .frame(maxHeight: 29)
-            .background(s.state == .waiting ? (dimmed ? Color.white : Pulse.clay).opacity(0.13 + 0.11 * Glide.pulse(film, tick)) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(s.state == .waiting ? Pulse.clay.opacity(0.13 + 0.11 * Glide.pulse(film, tick)) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 if s.state == .waiting && mode != .fullColor {
                     RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.5), lineWidth: 1.5)
@@ -982,15 +968,8 @@ struct OpenLink<Content: View>: View {
 
 struct PulseWidgetView: View {
     @Environment(\.widgetFamily) private var family
-    @Environment(\.widgetRenderingMode) private var renderingMode
     let entry: PulseEntry
     var forcedFamily: WidgetFamily? = nil   // for the render harness
-    #if RENDER_HARNESS
-    /// KW_DIMMED=1 previews the dimmed look in the harness.
-    var forceDimmed = ProcessInfo.processInfo.environment["KW_DIMMED"] == "1"
-    #else
-    var forceDimmed = false
-    #endif
 
     private var smallWaiting: Bool {
         (forcedFamily ?? family) == .systemSmall && ordered(entry.sessions, hero: entry.heroID).first?.state == .waiting
@@ -1012,7 +991,6 @@ struct PulseWidgetView: View {
                 }
             }
         }
-        .environment(\.dimmed, forceDimmed || renderingMode == .vibrant)
         .environment(\.pulseTick, entry.tick)
             .environment(\.heroImage, entry.heroImage)
             .environment(\.heroAct, entry.act)
