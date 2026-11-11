@@ -827,6 +827,10 @@ struct InstallFrame: View {
 extension InstallFilm {
     /// `--install out.mp4 [from to]` renders the film; `--install-still t out.png` one frame.
     @MainActor static func run(_ args: [String]) {
+        // `--tile from to out.mp4`: the small widget alone on the page's paper, for the state loops on the page.
+        if args.first == "--tile", args.count >= 4, let from = Double(args[1]), let to = Double(args[2]) {
+            tile(from: from, to: to, out: args[3]); return
+        }
         if args.first == "--install-still", args.count >= 3, let t = Double(args[1]) {
             // Drawn onto an opaque bitmap first, as the video's frames are: the renderer's own image keeps
             // alpha that turns into a grey veil when written straight to a PNG.
@@ -867,5 +871,45 @@ extension InstallFilm {
         try? pipe.fileHandleForWriting.close()
         ffmpeg.waitUntilExit()
         print("wrote \(out), \(n) frames")
+    }
+}
+
+extension InstallFilm {
+    struct TileFrame: View {
+        let t: Double
+        var body: some View {
+            // The extra-large widget, so the hero card is the one people see on the desktop; cropped to it after.
+            let film = FilmFrame(t: t), size = CGSize(width: 704, height: 344)
+            ZStack {
+                Color(red: 0.933, green: 0.918, blue: 0.894)
+                film.chrome(size) { film.content(.systemExtraLarge, size) }.scaleEffect(1.5)
+            }
+            .frame(width: 1120, height: 560)
+        }
+    }
+
+    @MainActor static func tile(from: Double, to: Double, out: String) {
+        let w = 1120, h = 560, fps = 30
+        let ffmpeg = Process()
+        ffmpeg.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        ffmpeg.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "\(w)x\(h)", "-r", "\(fps)",
+                            "-i", "-", "-an", "-c:v", "libx264", "-preset", "slow", "-crf", "22", "-pix_fmt", "yuv420p",
+                            "-movflags", "+faststart", out]
+        let pipe = Pipe()
+        ffmpeg.standardInput = pipe
+        try! ffmpeg.run()
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)!
+        for i in Int(from * Double(fps))..<Int(to * Double(fps)) {
+            autoreleasepool {
+                guard let cg = FilmMain.render(TileFrame(t: Double(i) / Double(fps))) else { return }
+                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+                pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 4, deallocator: .none))
+            }
+        }
+        try? pipe.fileHandleForWriting.close()
+        ffmpeg.waitUntilExit()
+        print("wrote \(out)")
     }
 }

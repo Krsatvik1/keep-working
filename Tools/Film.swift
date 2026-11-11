@@ -1056,7 +1056,7 @@ enum FilmMain {
     @MainActor static func main() {
         _ = NSApplication.shared
         let all = Array(CommandLine.arguments.dropFirst())
-        if all.first == "--install" || all.first == "--install-still" { InstallFilm.run(all); return }
+        if all.first == "--install" || all.first == "--install-still" || all.first == "--tile" { InstallFilm.run(all); return }
         if all.first == "--desktop-still", all.count >= 3, let w = Double(all[1]) {
             Script.desktop = true; Script.endAt = DesktopFilm.endAt
             guard let cg = render(DesktopFilm(w: w)) else { fatalError("no frame") }

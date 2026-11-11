@@ -11,4 +11,4 @@ for f in Shared/SessionStore.swift Widget/KeepWorkingWidget.swift Widget/ClawdMo
 swiftc -O -parse-as-library -D RENDER_HARNESS \
   "$SRC/SessionStore.swift" "$SRC/KeepWorkingWidget.swift" "$SRC/ClawdMotion.swift" Tools/Film.swift Tools/InstallFilm.swift \
   -o build/install-film
-if [[ "$1" == --still ]]; then build/install-film --install-still "$2" "$3"; else build/install-film --install "$@"; fi
+if [[ "$1" == --still ]]; then build/install-film --install-still "$2" "$3"; elif [[ "$1" == --tile ]]; then build/install-film "$@"; else build/install-film --install "$@"; fi
