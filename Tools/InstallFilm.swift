@@ -5,6 +5,7 @@
 import AppKit
 import SwiftUI
 import WidgetKit
+import UniformTypeIdentifiers
 
 enum InstallFilm {
     static let length = 24.5
@@ -28,6 +29,7 @@ private enum Icons {
     static func file(_ path: String) -> NSImage { NSWorkspace.shared.icon(forFile: path) }
     static let app = NSImage(contentsOfFile: "App/Resources/AppIcon.icns") ?? NSImage()
     static let applications = file("/Applications")
+    static let dmg = NSWorkspace.shared.icon(for: UTType("com.apple.disk-image-udif") ?? .diskImage)
     static let downloads = file(NSHomeDirectory() + "/Downloads")
     static let privacy = file("/System/Library/ExtensionKit/Extensions/SecurityPrivacyExtension.appex")
     static let caution = NSImage(contentsOfFile: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AlertCautionBadgeIcon.icns") ?? NSImage()
@@ -138,8 +140,9 @@ struct InstallFrame: View {
     ]
     /// Where the pointer is: eased between these (time, desktop point).
     private static let path: [(Double, CGPoint)] = [
-        (0.0, CGPoint(x: 1120, y: 760)), (1.4, CGPoint(x: 605, y: 290)), (1.8, CGPoint(x: 605, y: 290)),
-        (3.0, CGPoint(x: 432, y: 291)), (4.0, CGPoint(x: 432, y: 291)), (4.45, CGPoint(x: 730, y: 290)),
+        (0.0, CGPoint(x: 1120, y: 760)), (0.95, CGPoint(x: 605, y: 290)), (1.3, CGPoint(x: 605, y: 290)),
+        (1.7, CGPoint(x: 590, y: 398)), (1.8, CGPoint(x: 590, y: 398)), (2.6, CGPoint(x: 850, y: 398)),
+        (3.0, CGPoint(x: 850, y: 398)), (3.42, CGPoint(x: 432, y: 291)), (4.0, CGPoint(x: 432, y: 291)), (4.45, CGPoint(x: 730, y: 290)),
         (5.8, CGPoint(x: 730, y: 290)), (6.45, CGPoint(x: 662, y: 492)), (6.7, CGPoint(x: 662, y: 492)),
         (7.05, CGPoint(x: 364, y: 194)), (7.3, CGPoint(x: 364, y: 194)),
         (7.85, CGPoint(x: 21, y: 13)), (8.15, CGPoint(x: 21, y: 13)), (8.6, CGPoint(x: 86, y: 74)),
@@ -153,11 +156,11 @@ struct InstallFrame: View {
     ]
     /// Clicks: time, and whether it's a right-click.
     private static let clicks: [(Double, Bool)] = [
-        (1.8, false), (3.55, false), (4.55, false), (4.72, false), (6.6, false), (7.15, false), (8.0, false), (8.75, false),
+        (1.05, false), (1.2, false), (1.8, false), (3.55, false), (4.55, false), (4.72, false), (6.6, false), (7.15, false), (8.0, false), (8.75, false),
         (11.0, false), (12.1, false), (14.05, false), (15.0, true), (16.2, false), (17.6, false), (20.2, false),
     ]
     /// Mouse held down (drags).
-    private static let holds: [(Double, Double)] = [(1.8, 3.0), (17.6, 19.0)]
+    private static let holds: [(Double, Double)] = [(1.8, 2.6), (17.6, 19.0)]
 
     private static let captions: [(Double, Double, String, String)] = [
         (0.3, 4.9, "1", "Drag it into Applications, then open it."),
@@ -204,6 +207,8 @@ struct InstallFrame: View {
             MacDesktop()
             placedWidget
             if t >= 0.35 && t < 7.33 { finder }
+            if t >= 1.25 { mountedDisk }
+            if t >= 1.25 && t < 3.25 { dmgWindow }
             if t >= 4.85 && t < 6.78 { gatekeeper }
             if t >= 8.0 && t < 8.8 { appleMenu }
             if t >= 8.75 && t < 14.27 { settings }
@@ -228,7 +233,7 @@ struct InstallFrame: View {
         let f = Self.finder
         let k = ramp(t, 0.35, 0.7) * (1 - ramp(t, 7.18, 7.33))
         let inApps = t >= 3.62
-        let dropping = t >= 2.6 && t < 3.62
+        let dropping = false
         return HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 trafficLights().padding(.leading, 18).padding(.top, 18)
@@ -278,6 +283,60 @@ struct InstallFrame: View {
         .offset(x: f.minX, y: f.minY)
     }
 
+    /// The opened disk image, as release.sh lays it out: the app, an arrow, Applications, on paper.
+    static let dmgRect = CGRect(x: 450, y: 230, width: 540, height: 388)
+    private var dmgWindow: some View {
+        let d = Self.dmgRect
+        let k = ramp(t, 1.25, 1.55) * (1 - ramp(t, 3.05, 3.25))
+        let over = t >= 2.25 && t < 2.62
+        let dropped = t >= 2.6
+        return VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                trafficLights()
+                img(Icons.app, 14)
+                Text("Keep Working").font(.system(size: 13, weight: .bold)).foregroundStyle(Dark.text)
+                Spacer()
+            }
+            .padding(.horizontal, 14).frame(height: 28).background(Color(white: 0.2))
+            ZStack(alignment: .topLeading) {
+                Color(red: 0.933, green: 0.918, blue: 0.894)
+                Path { p in p.move(to: CGPoint(x: 215, y: 150)); p.addLine(to: CGPoint(x: 325, y: 150)) }
+                    .stroke(FilmFrame.ink, lineWidth: 3)
+                Path { p in p.move(to: CGPoint(x: 335, y: 150)); p.addLine(to: CGPoint(x: 319, y: 141)); p.addLine(to: CGPoint(x: 319, y: 159)); p.closeSubpath() }
+                    .fill(FilmFrame.ink)
+                dmgIcon(Icons.app, "Keep Working", selected: t >= 1.8 && !dropped).position(x: 140, y: 162)
+                dmgIcon(Icons.applications, "Applications", selected: over).position(x: 400, y: 162)
+            }
+            .frame(width: d.width, height: d.height - 28)
+        }
+        .frame(width: d.width, height: d.height)
+        .macWindow(10)
+        .popIn(k)
+        .offset(x: d.minX, y: d.minY)
+    }
+
+    private func dmgIcon(_ icon: NSImage, _ name: String, selected: Bool) -> some View {
+        VStack(spacing: 6) {
+            img(icon, 96).padding(4)
+                .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Color.black.opacity(0.12) : .clear))
+            Text(name).font(.system(size: 13)).foregroundStyle(selected ? .white : FilmFrame.ink)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(RoundedRectangle(cornerRadius: 4).fill(selected ? Dark.blue : .clear))
+        }
+    }
+
+    /// The mounted disk on the desktop, under the files on the right.
+    private var mountedDisk: some View {
+        VStack(spacing: 4) {
+            img(Icons.app, 62)
+            Text("Keep Working").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
+        }
+        .frame(width: 110)
+        .opacity(ramp(t, 1.25, 1.5))
+        .offset(x: MacDesktop.size.width - 122, y: 355)
+    }
+
     private func gridItem(_ name: String, _ icon: NSImage, selected: Bool) -> some View {
         VStack(spacing: 6) {
             img(icon, 64)
@@ -292,7 +351,7 @@ struct InstallFrame: View {
     }
 
     private var downloadsGrid: some View {
-        HStack(spacing: 0) { gridItem("Keep Working", Icons.app, selected: t >= 1.8); Spacer() }
+        HStack(spacing: 0) { gridItem("KeepWorking.dmg", Icons.dmg, selected: t >= 1.05); Spacer() }
             .padding(.leading, 25).padding(.top, 16)
     }
 
@@ -739,8 +798,8 @@ struct InstallFrame: View {
 
     @ViewBuilder private var dragGhosts: some View {
         // The app icon, carried from Downloads to the sidebar's Applications.
-        if t >= 1.85 && t < 3.25 {
-            let shrink = ramp(t, 3.0, 3.25)
+        if t >= 1.85 && t < 2.85 {
+            let shrink = ramp(t, 2.6, 2.85)
             img(Icons.app, 64).opacity(0.75 * (1 - shrink)).scaleEffect(1 - 0.6 * shrink)
                 .position(x: pointer.x - 4, y: pointer.y + 2)
         }
