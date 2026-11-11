@@ -41,33 +41,12 @@ enum ClawdMotion {
 
     // MARK: Moods
 
-    /// The beat a loop is played on. Most beats are `steady`. The walk's first and last beats ease the steps
-    /// in and out, so the walk meets the standing key pose; the beat at the end of the bar turns around. Each
-    /// of these is one beat long, so it starts and ends on the beat.
-    enum Variant: String { case steady, start, stop, turn }
-    static let turnTime = 0.45
-
     /// `walking` only matters while working: on the bar it walks, at either end it stops and looks about.
     /// `turn` is the way it faces: 1 right, −1 left.
-    static func pose(_ mood: Mood, t: Double, walking: Bool = true, turn: Double = 1,
-                     variant: Variant = .steady) -> Pose {
+    static func pose(_ mood: Mood, t: Double, walking: Bool = true, turn: Double = 1) -> Pose {
         var p: Pose
         switch mood {
-        case .working where walking:
-            let env: Double
-            switch variant {
-            case .start: env = ramp(t, 0, 0.4)
-            case .stop: env = 1 - ramp(t, 1.6, 2.0)
-            default: env = 1
-            }
-            p = walk(t, amount: env)
-        case .working:
-            p = stand(t)
-            // Turning round at the end of the bar: from the old way to the new, edge-on in between.
-            if variant == .turn {
-                let c = -cos(.pi * ease(t / turnTime))
-                p.turn = (c < 0 ? -1 : 1) * max(0.35, abs(c))   // never paper-thin
-            }
+        case .working: p = walking ? walk(t) : stand(t)
         case .waiting: p = waiting(t)
         case .done: p = celebrate(t)
         case .resting: p = resting(t)
@@ -215,6 +194,54 @@ enum ClawdMotion {
         return p
     }
 
+    // MARK: The walk along the bar
+
+    /// The whole walk as one loop of the walk's own time `w`: across the bar, a pause to turn round, back, a
+    /// pause to turn round. Where it is, the way it faces and its stride all come from `w`, so the desktop can
+    /// play the lot as a single flip-book on the clock. Nothing about it depends on when the widget is
+    /// updated, which is what used to make it jump.
+    enum Walk {
+        static let cross = 7.0, rest = 1.0
+        static let cycle = 2 * (cross + rest)
+        static let fps = 12.0
+        private static let accel = 0.6
+
+        /// How far across (0 left … 1 right), the way it faces (1 right … −1 left, in between mid-turn) and
+        /// how hard it is walking (0 standing … 1 full stride).
+        static func state(_ w0: Double) -> (x: Double, turn: Double, amount: Double) {
+            var w = w0.truncatingRemainder(dividingBy: cycle)
+            if w < 0 { w += cycle }
+            let back = w >= cross + rest
+            let u = back ? w - cross - rest : w
+            var s = 1.0, amount = 0.0, turn = 1.0
+            if u < cross {
+                // Eases up to speed and back down, so it never starts or stops dead.
+                let vmax = 1 / (cross - accel)
+                if u < accel { s = vmax * u * u / (2 * accel); amount = u / accel }
+                else if u > cross - accel { let r = cross - u; s = 1 - vmax * r * r / (2 * accel); amount = r / accel }
+                else { s = vmax * (u - accel / 2); amount = 1 }
+            } else {
+                // At the end of the bar: a breath, then round to face the other way (never paper-thin).
+                let c = cos(.pi * ease((u - cross - 0.2) / 0.5))
+                turn = (c < 0 ? -1 : 1) * max(0.35, abs(c))
+            }
+            return back ? (1 - s, -turn, amount) : (s, turn, amount)
+        }
+
+        /// The pose at `w` on a bar `travel` points long, with cells `px` wide. The stride follows the ground
+        /// covered, not the clock, so the feet stay planted as it speeds up and slows down.
+        static func pose(_ w0: Double, travel: Double, px: Double) -> Pose {
+            var w = w0.truncatingRemainder(dividingBy: cycle)
+            if w < 0 { w += cycle }
+            let st = state(w)
+            let along = w >= cross + rest ? 1 - st.x : st.x
+            var p = walk(along * travel / (4 * px) * stride, amount: st.amount)
+            p.turn = st.turn
+            p.eyeOpen = blink(w, every: cycle / 2, at: 3.0) * (st.amount > 0 ? 1 : 1.1)
+            return p
+        }
+    }
+
     // MARK: Acts: reacting to a new image
 
     /// One-off reactions when a new image arrives behind the hero. Each runs `actLength` seconds from a neutral
@@ -306,10 +333,13 @@ enum ClawdMotion {
     }
 
     /// C: it holds a little camera up beside its head, the flash goes, it lowers the camera and admires the
-    /// picture with ^ ^ eyes and a couple of happy bounces.
+    /// picture with ^ ^ eyes and a couple of happy bounces. The first and last second are plain standing: the
+    /// desktop shows a scheduled change about a second late, and this way a start that is early or late by up
+    /// to a second cuts nothing off.
+    static let flashAt = 1.5
     static func snapshot(_ t: Double) -> Pose {
         var p = Pose()
-        let raise = ramp(t, 0.1, 0.6) - ramp(t, 1.0, 1.5)
+        let raise = ramp(t, 1.0, 1.45) - ramp(t, 1.9, 2.4)
         p.armL = -0.3 + 0.9 * raise
         p.armR = -0.3 + 1.5 * raise
         if raise > 0.02 {
@@ -319,20 +349,19 @@ enum ClawdMotion {
             p.cuts = [Box(x: cxp + 1.5, y: cy + 0.45, w: 1, h: 0.8)]
             p.eyeDX = 0.7 * raise; p.eyeDY = 0.3 * raise
         }
-        let flash = t > 0.62 && t < 0.95
-        if flash {
-            let k = (t - 0.62) / 0.33
+        if t > flashAt + 0.02 && t < flashAt + 0.35 {
+            let k = (t - flashAt - 0.02) / 0.33
             p.marks = [Glyph(bits: star, x: 15.6 - 0.9 * k, y: 0.1 - 0.4 * k, scale: 1.0 + 0.8 * k, opacity: 1 - k)]
             p.eyeOpen = 0.25
         } else {
-            p.eyeOpen = blink(t, every: 3.0)
+            p.eyeOpen = blink(t, every: 6.0, at: 0.5)
         }
-        let admire = ramp(t, 1.5, 1.7) - ramp(t, 5.0, 5.3)
+        let admire = ramp(t, 2.4, 2.6) - ramp(t, 4.6, 4.95)
         if admire > 0 {
             p.happy = admire > 0.5
-            let b = sin(2 * .pi * (t - 1.5) / 0.7)
+            let b = sin(2 * .pi * (t - 2.4) / 0.7)
             p.lift = 0.5 * abs(b) * admire
-            p.squash = 0.06 * cos(4 * .pi * (t - 1.5) / 0.7) * admire
+            p.squash = 0.06 * cos(4 * .pi * (t - 2.4) / 0.7) * admire
             p.armL = (0.6 + 0.5 * b) * admire - 0.3 * (1 - admire)
             p.armR = (0.6 - 0.5 * b) * admire - 0.3 * (1 - admire)
         }
@@ -448,14 +477,15 @@ struct ClawdSprite: View {
     var turn = 1.0
     /// When set, `t` is seconds into this one-off act instead of the mood's loop.
     var act: ClawdMotion.Act? = nil
-    var variant: ClawdMotion.Variant = .steady
+    /// Draw exactly this pose (the walk along the bar supplies its own).
+    var pose: ClawdMotion.Pose? = nil
 
     static let cols: CGFloat = 22, rows: CGFloat = 14
     static func size(px: CGFloat) -> CGSize { CGSize(width: cols * px, height: rows * px * 1.7) }
 
     var body: some View {
-        let f = ClawdMotion.frame(act.map { var p = ClawdMotion.act($0, t: t); p.turn *= turn; return p }
-            ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn, variant: variant))
+        let f = ClawdMotion.frame(pose ?? act.map { var p = ClawdMotion.act($0, t: t); p.turn *= turn; return p }
+            ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn))
         let py = px * 1.7
         Canvas { ctx, size in
             let H = size.height
@@ -514,29 +544,23 @@ struct ClawdLoop: View {
     /// A one-off act in place of the mood's loop (it plays once: the timeline swaps it out when it ends).
     var act: ClawdMotion.Act? = nil
     /// The way it faces, drawn into the frames. (Mirroring the flip-book instead would also mirror the spin
-    /// that shows its frames, and play them backwards.)
+    /// that shows its frames.)
     var facing = 1.0
-    var variant: ClawdMotion.Variant = .steady
 
     @Environment(\.filmTime) private var film
 
-    /// A one-beat variant runs exactly one beat.
-    private var period: Double {
-        if act != nil { return ClawdMotion.actLength }
-        return variant == .steady ? ClawdMotion.loop(mood) : Beat.seconds
-    }
-
     var body: some View {
         let fps = act == nil ? ClawdMotion.fps(mood) : 15
+        let period = act == nil ? ClawdMotion.loop(mood) : ClawdMotion.actLength
         #if RENDER_HARNESS
         if let film {
             // The film's clock, cut to the flip-book's frame rate, exactly as the desktop shows it.
             let t = (film * fps).rounded(.down) / fps
-            sprite(act == nil && variant == .steady ? t : t.truncatingRemainder(dividingBy: period), toned: true)
+            sprite(act == nil ? t : t.truncatingRemainder(dividingBy: period), toned: true)
         } else {
             TimelineView(.animation) { tl in
-                let t = (tl.date.timeIntervalSinceReferenceDate * fps).rounded(.down) / fps
-                sprite(act == nil && variant == .steady ? t : t.truncatingRemainder(dividingBy: period), toned: true)
+                let t = (tl.date.timeIntervalSince1970 * fps).rounded(.down) / fps
+                sprite(act == nil ? t : t.truncatingRemainder(dividingBy: period), toned: true)
             }
         }
         #else
@@ -548,7 +572,45 @@ struct ClawdLoop: View {
     }
 
     private func sprite(_ t: Double, toned: Bool) -> ClawdSprite {
-        ClawdSprite(mood: mood, t: t, px: px, walking: walking, turn: facing, act: act, variant: variant, toned: toned)
+        ClawdSprite(mood: mood, t: t, px: px, walking: walking, turn: facing, act: act, toned: toned)
+    }
+}
+
+/// The hero walking its bar: the whole walk, travel included, as one flip-book on the clock. Every update of
+/// the widget draws this same loop, so an update changes nothing on screen, however often they come.
+struct WalkerBook: View {
+    /// The walk's time is the clock's minus this.
+    let offset: Double
+    /// The bar it walks, in points.
+    let width: CGFloat
+    var px: CGFloat = 4.5
+
+    @Environment(\.filmTime) private var film
+
+    var body: some View {
+        let fps = ClawdMotion.Walk.fps
+        #if RENDER_HARNESS
+        if let film {
+            strip((film * fps).rounded(.down) / fps - offset, toned: true)
+        } else {
+            TimelineView(.animation) { tl in
+                strip((tl.date.timeIntervalSince1970 * fps).rounded(.down) / fps - offset, toned: true)
+            }
+        }
+        #else
+        FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
+            .frame(width: width, height: ClawdSprite.size(px: px).height)
+            .compositingGroup()
+            .opacity(ClawdSprite.tone(.working))
+        #endif
+    }
+
+    private func strip(_ w: Double, toned: Bool) -> some View {
+        let size = ClawdSprite.size(px: px)
+        let travel = max(0, width - size.width)
+        return ClawdSprite(mood: .working, t: 0, px: px, pose: ClawdMotion.Walk.pose(w, travel: travel, px: px), toned: toned)
+            .offset(x: travel * ClawdMotion.Walk.state(w).x)
+            .frame(width: width, height: size.height, alignment: .topLeading)
     }
 }
 
@@ -564,7 +626,7 @@ struct FlipBook<Frame: View>: View {
         if let spin = ClockSpin.modifier(period: period) {
             GeometryReader { g in
                 let size = max(g.size.width, g.size.height)
-                let pivot = size * 80, radius = pivot + size * 2
+                let pivot = size * max(80, period * 12), radius = pivot + size * 2
                 ZStack {
                     ForEach(0..<n, id: \.self) { i in
                         frame(Double(i) / fps).mask {
@@ -590,11 +652,10 @@ struct FlipBook<Frame: View>: View {
             var p = Path()
             let c = CGPoint(x: r.midX, y: r.midY)
             p.move(to: c)
-            // On the desktop the spin runs the other way to SwiftUI's angles, so the slices are laid out going
-            // round the other way too: laid out as before, every loop played backwards (the snapshot danced
-            // first and took the picture last).
-            p.addArc(center: c, radius: r.width / 2, startAngle: .radians(up + Double(index) * w - e),
-                     endAngle: .radians(up + Double(index + 1) * w + e), clockwise: false)
+            // Measured on the desktop (a readout of frame numbers beside a live clock): laid out this way the
+            // frames play forwards, and frame 0 starts when the clock is a whole multiple of the period.
+            p.addArc(center: c, radius: r.width / 2, startAngle: .radians(up - Double(index + 1) * w - e),
+                     endAngle: .radians(up - Double(index) * w + e), clockwise: false)
             p.closeSubpath()
             return p
         }

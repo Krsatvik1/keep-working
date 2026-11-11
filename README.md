@@ -96,3 +96,19 @@ Three more things learned on the desktop (11 Nov):
   into the frames, and the turn at the end of the bar is a one-beat loop of its own.
 - The walk's first and last beats ease the steps in and out, and a state change that lands mid-beat waits for the
   next beat, so every swap happens on the beat between matching poses.
+
+## How the desktop really plays it (measured 11 Nov, from a readout of frame numbers beside a live clock)
+
+- A flip-book's frame 0 starts when the clock is a whole multiple of its period, and the frames play forwards
+  with the slices laid out as in `FlipBook.Slice` (the other way round they play backwards).
+- A timeline entry appears about a second after its date (1.03 s, steady). A reload's first entry appears at once.
+- A reload crossfades from the old picture to the new one. If the two differ (the walker a few points apart),
+  both show at once for up to a second and a half: a ghost.
+- An offset only glides between entries while the view under it keeps its identity; otherwise it jumps.
+
+So nothing moves from entry to entry any more. The walk along the bar (travel, turn, stride) is one 16 s
+flip-book on the clock (`ClawdMotion.Walk`, `WalkerBook`), every reload draws that same loop, and a reload
+therefore changes nothing on screen. The walk keeps its own time (`WalkClock`): it stops while the hero isn't
+working and for a snapshot, and resumes from the same spot. The timeline is one entry, plus four around a
+snapshot, each dated `Beat.displayLag` early; the snapshot's first and last second are plain standing, so being
+off by up to a second cuts nothing off. The pulses (needs-you glow, current step) are static for now.

@@ -22,9 +22,9 @@ enum Script {
     struct Moment {
         var sessions: [SessionSnapshot]
         var act: ClawdMotion.Act? = nil
-        var actTick: Int? = nil
         var image: Data? = nil
-        var walk = WalkPlan()
+        var walkOffset = 0.0
+        var standW: Double? = nil
         /// The hero's state: a change of state swaps the whole layout.
         var state: SessionState = .idle
         /// What a viewer could tell apart from one entry to the next.
@@ -93,16 +93,17 @@ enum Script {
             session("dark", "Dark mode polish", "acme-app", ago: 180_000),
         ]
         let sig = "\(star.state)|\(star.stepsDone)|\(star.detail ?? "")|\(loginState)"
-        // The walk: the snapshot pauses it for beats 6–8, and it stands still while not working (9–13, 16 on).
-        let walk: WalkPlan
+        // The walk's clock: it starts with the work at 2 s, stands for the snapshot and whenever it isn't working.
+        let walkOffset: Double, standW: Double?
         switch n {
-        case ..<1: walk = WalkPlan(pausedAt: 1)
-        case ..<9: walk = WalkPlan(before: 0, after: 3, actTick: 6)
-        case ..<14: walk = WalkPlan(before: 0, after: 3, actTick: 6, pausedAt: 9)
-        case ..<16: walk = WalkPlan(before: 5, after: 8, actTick: 6)
-        default: walk = WalkPlan(before: 5, after: 8, actTick: 6, pausedAt: 16)
+        // Timed so it wakes a quarter of the way along, and has just reached the right-hand end for the snapshot.
+        case ..<1: (walkOffset, standW) = (0, 13.1)
+        case ..<6: (walkOffset, standW) = (4.9, nil)
+        case ..<14: (walkOffset, standW) = (4.9, 7.1)
+        case ..<16: (walkOffset, standW) = (20.9, nil)
+        default: (walkOffset, standW) = (20.9, 11.1)
         }
-        return Moment(sessions: [star] + others, act: act, actTick: act == nil ? nil : 6, image: image, walk: walk,
+        return Moment(sessions: [star] + others, act: act, image: image, walkOffset: walkOffset, standW: standW,
                       state: star.state, signature: sig)
     }
 
@@ -110,15 +111,15 @@ enum Script {
     /// one flashes in bright and soft, and from 1.0 s it settles over 1.4 s. 1 just snapped … 0 settled.
     static let actStart = 12.0
     static func develop(_ t: Double) -> Double? {
-        let a = t - actStart
-        guard a >= 0.6, a < 2.5 else { return nil }
-        if a < 0.8 { let k = (a - 0.6) / 0.2; return 1 - (1 - k) * (1 - k) }
-        if a < 1.0 { return 1 }
-        let k = min(1, (a - 1.0) / 1.4)
+        let a = t - actStart - ClawdMotion.flashAt
+        guard a >= 0, a < 1.9 else { return nil }
+        if a < 0.2 { let k = a / 0.2; return 1 - (1 - k) * (1 - k) }
+        if a < 0.4 { return 1 }
+        let k = min(1, (a - 0.4) / 1.4)
         return (1 - k) * (1 - k)
     }
     /// The new image isn't behind the card until the flash.
-    static func imageShown(_ t: Double) -> Bool { !(t >= actStart && t < actStart + 0.6) }
+    static func imageShown(_ t: Double) -> Bool { !(t >= actStart && t < actStart + ClawdMotion.flashAt) }
 
     /// Captions over the widget, on the widget's clock.
     static let captions: [(from: Double, to: Double, text: String)] = [
@@ -311,7 +312,7 @@ struct FilmFrame: View {
     func tile(_ m: Script.Moment, _ family: WidgetFamily, _ size: CGSize) -> some View {
         let image = Script.imageShown(t) ? m.image : nil
         let entry = PulseEntry(date: .now, sessions: m.sessions, error: nil, tick: tick, heroImage: image,
-                               act: m.act, developing: false, actTick: m.actTick, walk: m.walk)
+                               act: m.act, developing: false, walkOffset: m.walkOffset, standW: m.standW)
         return PulseWidgetView(entry: entry, forcedFamily: family)
             .environment(\.filmTime, t)
             .environment(\.developAmount, image == nil ? nil : Script.develop(t))
@@ -1068,36 +1069,43 @@ enum FilmMain {
             ? [.widget(Double(args[1]) ?? 0, Double(args[2]) ?? 36, enter: false, exit: false)] : Script.cut
         let w = Int(Script.size.width), h = Int(Script.size.height)
 
+        // Frames are drawn at 16 bits per channel, so soft shadows and glows have smooth ramps even after the
+        // camera zooms them 2–3x. One ffmpeg makes two files from them: a 10-bit HEVC master (no banding, plays
+        // on Apple devices and in Safari) and an 8-bit H.264 copy for uploading, stepped down from 16 bits with
+        // error-diffusion dithering, which is finer than any grain and invisible at normal viewing.
+        let master = out.replacingOccurrences(of: ".mp4", with: "-10bit.mp4")
         let ffmpeg = Process()
         ffmpeg.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
-        ffmpeg.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "\(w)x\(h)",
+        let tags = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+faststart"]
+        ffmpeg.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba64le", "-s", "\(w)x\(h)",
                             "-r", "\(Script.fps)", "-i", "-", "-an",
-                            // The frames are 8-bit and the camera zooms soft shadows 2–3x, which turns each colour step
-                            // into a wide band. Deband smooths those steps, a fine grain keeps them from coming back in
-                            // the encode, and aq-mode 3 spends bits on dark flat areas.
-                            "-vf", "format=gbrp16le,deband=1thr=0.012:2thr=0.012:3thr=0.012:range=28:blur=1:coupling=1,noise=alls=3:allf=t+u,format=yuv420p",
-                            "-c:v", "libx264", "-preset", "medium", "-crf", "15", "-x264-params", "aq-mode=3",
-                            "-pix_fmt", "yuv420p", "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-                            "-movflags", "+faststart", out]
+                            "-filter_complex",
+                            "[0:v]format=gbrp16le,split=2[a][b];" +
+                            "[a]zscale=matrix=709:range=limited:dither=error_diffusion,format=yuv420p[u];" +
+                            "[b]zscale=matrix=709:range=limited:dither=error_diffusion,format=yuv420p10le[m]",
+                            "-map", "[u]", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-tune", "grain",
+                            "-x264-params", "aq-mode=3", "-pix_fmt", "yuv420p"] + tags + [out,
+                            "-map", "[m]", "-c:v", "libx265", "-preset", "medium", "-crf", "14", "-pix_fmt", "yuv420p10le",
+                            "-x265-params", "log-level=error:aq-mode=3", "-tag:v", "hvc1"] + tags + [master]
         let pipe = Pipe()
         ffmpeg.standardInput = pipe
         try! ffmpeg.run()
 
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        let info = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
-        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space, bitmapInfo: info)!
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 16, bytesPerRow: w * 8, space: space, bitmapInfo: info)!
         var written = 0
-        func write(_ cg: CGImage?) {
-            guard let cg else { return }
-            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-            pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 4, deallocator: .none))
+        func write<V: View>(_ view: V) {
+            draw16(view, into: ctx)
+            pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 8, deallocator: .none))
             written += 1
         }
         let f = Double(Script.fps)
         if staged {
-            for (from, to) in DesktopFilm.cut {
+            let stretch: [(Double, Double)] = args.count > 2 ? [(Double(args[1]) ?? -2, Double(args[2]) ?? 42.4)] : DesktopFilm.cut
+            for (from, to) in stretch {
                 for i in Int((from * f).rounded())..<Int((to * f).rounded()) {
-                    autoreleasepool { write(render(DesktopFilm(w: Double(i) / f))) }
+                    autoreleasepool { write(DesktopFilm(w: Double(i) / f)) }
                 }
             }
         }
@@ -1106,21 +1114,32 @@ enum FilmMain {
             case let .widget(from, to, enter, exit):
                 for i in Int((from * f).rounded())..<Int((to * f).rounded()) {
                     let t = Double(i) / f
-                    autoreleasepool { write(render(FilmFrame(t: t, enter: enter ? t - from : nil, exit: exit ? to - t : nil))) }
+                    autoreleasepool { write(FilmFrame(t: t, enter: enter ? t - from : nil, exit: exit ? to - t : nil)) }
                 }
             case let .scene(scene, length):
                 for i in 0..<Int((length * f).rounded()) {
-                    autoreleasepool { write(render(SceneFrame(scene: scene, u: Double(i) / f, d: length))) }
+                    autoreleasepool { write(SceneFrame(scene: scene, u: Double(i) / f, d: length)) }
                 }
             }
         }
         print("\(written) frames, \(Double(written) / Double(Script.fps)) s")
         try? pipe.fileHandleForWriting.close()
         ffmpeg.waitUntilExit()
-        print("wrote \(out)")
+        print("wrote \(out) and \(master)")
     }
 
     @MainActor static func frame(_ t: Double) -> CGImage? { render(FilmFrame(t: t)) }
+
+    /// Draws a view into a 16-bit-per-channel context, so its shadows and blurs keep their fine steps.
+    @MainActor static func draw16<V: View>(_ view: V, into ctx: CGContext) {
+        let r = ImageRenderer(content: view)
+        r.isOpaque = true
+        ctx.saveGState()
+        ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+        r.render { _, draw in draw(ctx) }
+        ctx.restoreGState()
+    }
 
     @MainActor static func render<V: View>(_ view: V) -> CGImage? {
         let r = ImageRenderer(content: view)

@@ -17,41 +17,48 @@ struct PulseEntry: TimelineEntry {
     var act: ClawdMotion.Act? = nil
     /// The moment of the flash: the new image is bright and soft, just "developed".
     var developing = false
-    /// The beat the act started on. The walker holds the spot it had then until the act is over.
-    var actTick: Int? = nil
-    /// How the walk along the bar is paused by snapshot acts, so it always picks up where it stopped.
-    var walk = WalkPlan()
-    /// The hero's mood as the character shows it, when that differs from the session's: a state change that
-    /// arrives mid-beat keeps the old loop until the beat, where the two loops meet on the same key pose.
-    var characterMood: Mood? = nil
-    /// Set on a reload's first entry: how far through the current beat it lands (0…1). The walker is drawn
-    /// that far along its step, and the next entry finishes the step in the time left, instead of the reload
-    /// snapping it to the step's end.
-    var beatPhase: Double? = nil
-    /// How long the glide into this entry takes (nil: a whole beat).
-    var glide: Double? = nil
+    /// While the hero walks its bar, the walk's time is the clock's minus this.
+    var walkOffset = 0.0
+    /// The walk's time while the hero stands still (not working, or taking a snapshot); nil while it walks.
+    var standW: Double? = nil
 }
 
-/// The walk along the bar runs on its own clock. It stops for a snapshot act, and whenever the hero isn't
-/// working (needs you, finished, paused, asleep), and picks up again from the very spot it stopped on. The
-/// character never follows the session's step count, and never jumps. `before`/`after` are the beats the walk
-/// has lost before and after the latest act (`actTick`); `pausedAt` is the beat a non-working stretch began.
-struct WalkPlan: Equatable {
-    var before = 0, after = 0
-    var actTick: Int? = nil
-    var pausedAt: Int? = nil
-    static let actBeats = Int((ClawdMotion.actLength / Beat.seconds).rounded())
+/// The walk along the bar keeps its own time. It stops while the hero isn't working (needs you, finished,
+/// paused, asleep) and for a snapshot, and carries on from the very spot it stopped on. Kept in the extension's
+/// defaults, so every size and every reload agrees.
+enum WalkClock {
+    private static let d = UserDefaults.standard
+    private static var offset: Double { d.double(forKey: "walkclock.offset") }
+    private static var paused: Double? { d.object(forKey: "walkclock.paused") as? Double }
+    private static var act: Double? { d.object(forKey: "walkclock.act") as? Double }
 
-    /// The walk's own beat at timeline beat `t`.
-    func tick(_ t: Int) -> Int {
-        if let p = pausedAt, t >= p { return moving(p - 1) }
-        return moving(t)
+    /// The hero's state now: stop the walk, or start it again where it stopped.
+    static func update(working: Bool, now: Double) {
+        if let a = act, now >= a + ClawdMotion.actLength {      // a finished snapshot: the walk lost its length
+            d.set(offset + ClawdMotion.actLength, forKey: "walkclock.offset")
+            d.removeObject(forKey: "walkclock.act")
+        }
+        if !working, paused == nil {
+            d.set(fields(at: now).standW ?? now - offset, forKey: "walkclock.paused")
+            d.removeObject(forKey: "walkclock.act")
+        } else if working, let p = paused {
+            d.set(now - p, forKey: "walkclock.offset")
+            d.removeObject(forKey: "walkclock.paused")
+        }
     }
-    private func moving(_ t: Int) -> Int {
-        guard let a = actTick else { return t - after }
-        if t < a { return t - before }
-        if t < a + Self.actBeats { return a - 1 - before }   // standing still for the act
-        return t - after
+
+    /// A snapshot is coming at `start`: the walk stands still for it.
+    static func scheduleAct(start: Double) {
+        if paused == nil { d.set(start, forKey: "walkclock.act") }
+    }
+
+    /// What an entry shown at `t` needs: the walk's offset, and where it stands if it isn't walking then.
+    static func fields(at t: Double) -> (offset: Double, standW: Double?) {
+        if let p = paused { return (offset, p) }
+        guard let a = act else { return (offset, nil) }
+        if t < a { return (offset, nil) }
+        if t < a + ClawdMotion.actLength { return (offset, a - offset) }
+        return (offset + ClawdMotion.actLength, nil)
     }
 }
 
@@ -71,16 +78,12 @@ enum ImageArrival {
             d.set(image, forKey: "arrival.image")
             if sameSession {
                 let len = ClawdMotion.actLength
-                // At least a full beat away, so the beat before the act has not started yet and can ease out
-                // of the walk; never mid-beat.
-                let start = ((now.timeIntervalSince1970 + Beat.seconds) / len).rounded(.up) * len
+                // On a whole multiple of the act's length (that is when its flip-book starts), and far enough off
+                // for an entry dated a display-lag early to still be in the future.
+                let start = ((now.timeIntervalSince1970 + Beat.displayLag + 0.5) / len).rounded(.up) * len
                 d.set(start, forKey: "arrival.start")
                 d.set(previous, forKey: "arrival.previous")
-                // The walk stands still for the act: it loses that many beats from here on.
-                let lost = d.integer(forKey: "walk.after")
-                d.set(lost, forKey: "walk.before")
-                d.set(lost + WalkPlan.actBeats, forKey: "walk.after")
-                d.set(Int(start / Beat.seconds), forKey: "walk.actTick")
+                WalkClock.scheduleAct(start: start)
                 Logger(subsystem: "xyz.krsatvik.KeepWorking", category: "arrival")
                     .info("new image in the hero session, snapshot act at \(start, privacy: .public)")
             } else {
@@ -91,28 +94,6 @@ enum ImageArrival {
         let start = d.double(forKey: "arrival.start")
         guard start > 0, now.timeIntervalSince1970 < start + ClawdMotion.actLength else { return nil }
         return (Date(timeIntervalSince1970: start), d.data(forKey: "arrival.previous"))
-    }
-
-    /// The walk's pauses so far, for every entry of a timeline (acts long past just leave their lost beats).
-    static var walkPlan: WalkPlan {
-        let a = d.integer(forKey: "walk.actTick"), p = d.integer(forKey: "walk.pausedAt")
-        return WalkPlan(before: d.integer(forKey: "walk.before"), after: d.integer(forKey: "walk.after"),
-                        actTick: a > 0 ? a : nil, pausedAt: p > 0 ? p : nil)
-    }
-
-    /// The hero stops working: the walk stands still from the next beat. It starts working again: the walk
-    /// carries on from there, having lost the beats it stood still. The change shows on the next beat (a mood
-    /// change mid-beat is held until then), so that is where the walk stops or starts too.
-    static func walk(working: Bool, nextTick: Int) {
-        let paused = d.integer(forKey: "walk.pausedAt")
-        if !working && paused == 0 {
-            d.set(nextTick, forKey: "walk.pausedAt")
-        } else if working && paused > 0 {
-            let lost = max(0, nextTick - paused)
-            d.set(d.integer(forKey: "walk.after") + lost, forKey: "walk.after")
-            d.set(d.integer(forKey: "walk.before") + lost, forKey: "walk.before")
-            d.removeObject(forKey: "walk.pausedAt")
-        }
     }
 
     /// A stable hash (Swift's own is seeded per process).
@@ -127,6 +108,10 @@ enum ImageArrival {
 /// timeline is a run of identical entries one beat apart, and every animated value glides for the whole
 /// beat to its next keyframe. Motion never snaps and holds; it keeps moving, like a slow loop.
 enum Beat {
+    /// Measured on the desktop: a timeline entry appears about a second after its date (1.03 s, steady over
+    /// fifteen entries), while flip-books run on the true clock. Entries that must meet a flip-book are dated
+    /// this much early.
+    static let displayLag: TimeInterval = 1.0
     static let seconds: TimeInterval = 2
     /// Back-and-forth values (bob, sway, breathing): eased, so a ping-pong reads as a sine.
     static let ease = Animation.easeInOut(duration: seconds * 1.1)
@@ -145,83 +130,45 @@ struct PulseProvider: TimelineProvider {
         completion(context.isPreview ? placeholder(in: context) : load())
     }
 
+    /// One entry, plus four around a snapshot. Nothing moves from entry to entry any more: the walk, the loops
+    /// and the spinning ring all run on the clock, so a reload redraws the same picture and changes nothing on
+    /// screen, however often reloads come.
     func getTimeline(in context: Context, completion: @escaping (Timeline<PulseEntry>) -> Void) {
         var base = load()
-        let beat = Beat.seconds
-        // The first entry shows now, so it carries now's beat. (It used to carry tick 0, and since the app
-        // reloads every few seconds while a session works, the walker kept snapping back to the start.)
-        base.tick = Int((base.date.timeIntervalSince1970 / beat).rounded(.down))
-        let count = 20                        // 40 s of 2 s beats. Each entry carries every flip-book frame, and macOS rejects a timeline archive much past ~5–10 MB; the app reloads on every session change anyway
-        let start = (base.date.timeIntervalSince1970 / beat).rounded(.up) * beat
-        var entries = (0..<count).map { i -> PulseEntry in
-            let t = start + Double(i) * beat
-            return PulseEntry(date: Date(timeIntervalSince1970: t), sessions: base.sessions, error: base.error,
-                              tick: Int(t / beat), heroImage: base.heroImage)
-        }
-        // A new image in the hero session: the old one stays until the camera's flash, 0.6 s into the act.
-        // The flash and the settle get an entry each, off the beat, so the wash lasts a moment, not a whole beat.
-        if let arrival = ImageArrival.note(session: ordered(base.sessions).first?.id, image: base.heroImage, now: base.date) {
-            let end = arrival.start.addingTimeInterval(ClawdMotion.actLength)
-            let flash = arrival.start.addingTimeInterval(0.6), settle = arrival.start.addingTimeInterval(1.0)
-            let actTick = Int(arrival.start.timeIntervalSince1970 / beat)
-            let newImage = base.heroImage
-            func stage(_ e: inout PulseEntry) {
-                if e.date < flash { e.heroImage = arrival.previous }
-                if e.date >= arrival.start && e.date < end {
-                    e.act = .snapshot
-                    e.actTick = actTick
-                    e.developing = e.date >= flash && e.date < settle
-                }
+        let now = base.date.timeIntervalSince1970
+        let hero = ordered(base.sessions).first
+        let newImage = base.heroImage
+        WalkClock.update(working: hero?.state == .running, now: now)
+        let arrival = ImageArrival.note(session: hero?.id, image: newImage, now: base.date)
+        let actStart = arrival?.start.timeIntervalSince1970
+
+        /// Makes `e` look the way the widget should at clock time `shown`.
+        func fill(_ e: inout PulseEntry, _ shown: Double) {
+            let walk = WalkClock.fields(at: shown)
+            e.walkOffset = walk.offset
+            e.standW = walk.standW
+            guard let arrival, let s = actStart else { return }
+            if shown < s + ClawdMotion.flashAt { e.heroImage = arrival.previous }   // the old picture until the flash
+            if shown >= s && shown < s + ClawdMotion.actLength {
+                e.act = .snapshot
+                e.developing = shown >= s + ClawdMotion.flashAt && shown < s + ClawdMotion.flashAt + 0.4
             }
-            stage(&base)
-            for i in entries.indices { stage(&entries[i]) }
-            for date in [flash, settle] where date > base.date {
-                var e = PulseEntry(date: date, sessions: base.sessions, error: base.error,
-                                   tick: Int(date.timeIntervalSince1970 / beat), heroImage: newImage)
-                stage(&e)
+        }
+        fill(&base, now)
+        var entries: [PulseEntry] = []
+        if let s = actStart {
+            // The act starts, the flash, the picture settles, the act ends: each dated a display-lag early.
+            for shown in [s, s + ClawdMotion.flashAt, s + ClawdMotion.flashAt + 0.4, s + ClawdMotion.actLength] {
+                let date = shown - Beat.displayLag
+                guard date > now + 0.05 else { continue }
+                var e = PulseEntry(date: Date(timeIntervalSince1970: date), sessions: base.sessions, error: base.error,
+                                   heroImage: newImage)
+                fill(&e, shown)
                 entries.append(e)
             }
-            entries.sort { $0.date < $1.date }
         }
-        // The hero's mood changed since the last timeline: the base entry starts mid-beat, so it keeps the old
-        // loop and the new one starts on the next beat. Remembered per size, since each size asks for its own.
-        if let hero = ordered(base.sessions).first {
-            let key = "hero.\(context.family)"
-            let last = UserDefaults.standard.string(forKey: key + ".mood").flatMap(Mood.init(rawValue:))
-            if UserDefaults.standard.string(forKey: key + ".id") == hero.id, let last, last != hero.mood {
-                base.characterMood = last
-            }
-            UserDefaults.standard.set(hero.id, forKey: key + ".id")
-            UserDefaults.standard.set(hero.mood.rawValue, forKey: key + ".mood")
-        }
-        // A reload lands mid-beat, and reaches the screen a second or so after it is made: whichever entry is
-        // current by then is shown at once, without a glide. So the rest of this beat gets an entry every half
-        // second, each with the walker where it really is at that moment, gliding on to the next.
-        let into = base.date.timeIntervalSince1970 / beat
-        base.beatPhase = into - into.rounded(.down)
-        let nextBeat = start
-        var t = (base.date.timeIntervalSince1970 / 0.5).rounded(.down) * 0.5 + 0.5
-        while t < nextBeat - 0.01 {
-            var e = base
-            e.date = Date(timeIntervalSince1970: t)
-            let k = t / beat
-            e.beatPhase = k - k.rounded(.down)
-            e.glide = 0.5
-            entries.append(e)
-            t += 0.5
-        }
-        entries.sort { $0.date < $1.date }
-        if let i = entries.firstIndex(where: { $0.date.timeIntervalSince1970 >= nextBeat - 0.01 }), i > 0 {
-            entries[i].glide = nil
-        }
-
-        ImageArrival.walk(working: ordered(base.sessions).first?.state == .running,
-                          nextTick: Int((base.date.timeIntervalSince1970 / beat).rounded(.down)) + 1)
-        let plan = ImageArrival.walkPlan
-        base.walk = plan
-        for i in entries.indices { entries[i].walk = plan }
-        // The menu-bar app also nudges a reload whenever a session file changes.
-        completion(Timeline(entries: [base] + entries, policy: .after(entries.last!.date)))
+        // The menu-bar app reloads on every visible change and once a minute; this is only a fallback.
+        completion(Timeline(entries: [base] + entries, policy: .after(base.date.addingTimeInterval(900))))
     }
 
     private func load() -> PulseEntry {
@@ -236,11 +183,8 @@ private struct TickKey: EnvironmentKey { static let defaultValue = 0 }
 private struct HeroImageKey: EnvironmentKey { static let defaultValue: Data? = nil }
 private struct HeroActKey: EnvironmentKey { static let defaultValue: ClawdMotion.Act? = nil }
 private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
-private struct ActTickKey: EnvironmentKey { static let defaultValue: Int? = nil }
-private struct WalkPlanKey: EnvironmentKey { static let defaultValue: WalkPlan? = nil }
-private struct HeldMoodKey: EnvironmentKey { static let defaultValue: Mood? = nil }
-private struct BeatPhaseKey: EnvironmentKey { static let defaultValue: Double? = nil }
-private struct GlideKey: EnvironmentKey { static let defaultValue: Double? = nil }
+private struct WalkOffsetKey: EnvironmentKey { static let defaultValue = 0.0 }
+private struct StandWKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct FilmTimeKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct DevelopAmountKey: EnvironmentKey { static let defaultValue: Double? = nil }
 
@@ -262,25 +206,13 @@ enum Glide {
 }
 
 extension EnvironmentValues {
-    var beatPhase: Double? {
-        get { self[BeatPhaseKey.self] }
-        set { self[BeatPhaseKey.self] = newValue }
+    var walkOffset: Double {
+        get { self[WalkOffsetKey.self] }
+        set { self[WalkOffsetKey.self] = newValue }
     }
-    var glideTime: Double? {
-        get { self[GlideKey.self] }
-        set { self[GlideKey.self] = newValue }
-    }
-    var heldMood: Mood? {
-        get { self[HeldMoodKey.self] }
-        set { self[HeldMoodKey.self] = newValue }
-    }
-    var walkPlan: WalkPlan? {
-        get { self[WalkPlanKey.self] }
-        set { self[WalkPlanKey.self] = newValue }
-    }
-    var heroActTick: Int? {
-        get { self[ActTickKey.self] }
-        set { self[ActTickKey.self] = newValue }
+    var standW: Double? {
+        get { self[StandWKey.self] }
+        set { self[StandWKey.self] = newValue }
     }
     /// Seconds on the film's clock; nil everywhere but the film renderer.
     var filmTime: Double? {
@@ -380,8 +312,8 @@ extension SessionKind {
 
 /// The 16pt mark in front of a list row. Each state differs by shape, not only colour.
 struct RingMark: View {
-    @Environment(\.pulseTick) private var tick
-    @Environment(\.filmTime) private var film
+    @Environment(\.pulseTick) var tick
+    @Environment(\.filmTime) var film
     let s: SessionSnapshot
     var size: CGFloat = 16
 
@@ -403,10 +335,8 @@ struct RingMark: View {
                     .rotationEffect(.degrees(-90))
             case .running:
                 ring.stroke(Color.primary.opacity(0.18), style: StrokeStyle(lineWidth: line, dash: [size / 5, size / 5]))
-                ring.trim(from: 0, to: 0.25)
-                    .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round))
-                    .rotationEffect(.degrees(-90 + Glide.at(film, tick, linear: true) { Double($0) * 120 }))
-                    .animation(Beat.linear, value: tick)
+                spinning(ring.trim(from: 0, to: 0.25)
+                    .stroke(Color.primary, style: StrokeStyle(lineWidth: line, lineCap: .round)))
             case .done:
                 ring.stroke(Pulse.green, lineWidth: line)
                 Image(systemName: "checkmark").font(.system(size: size * 0.45, weight: .bold)).foregroundStyle(Pulse.green)
@@ -423,6 +353,17 @@ struct RingMark: View {
         }
         .frame(width: size, height: size)
         .animation(Beat.ease, value: tick)
+    }
+}
+
+extension RingMark {
+    /// The "working, no list" arc turns on the clock (once every 3 s), like everything else that moves.
+    @ViewBuilder func spinning<V: View>(_ arc: V) -> some View {
+        #if RENDER_HARNESS
+        arc.rotationEffect(.degrees(-90 + Glide.at(film, tick, linear: true) { Double($0) * 120 }))
+        #else
+        if let spin = ClockSpin.modifier(period: 3) { ClockSpin.apply(spin, to: arc) } else { arc }
+        #endif
     }
 }
 
@@ -656,11 +597,8 @@ struct Hero: View {
     @Environment(\.heroImage) private var heroImage
     @Environment(\.heroAct) private var heroAct
     @Environment(\.imageDeveloping) private var developing
-    @Environment(\.heroActTick) private var actTick
-    @Environment(\.walkPlan) private var walkPlan
-    @Environment(\.heldMood) private var heldMood
-    @Environment(\.beatPhase) private var beatPhase
-    @Environment(\.glideTime) private var glideTime
+    @Environment(\.walkOffset) private var walkOffset
+    @Environment(\.standW) private var standW
     @Environment(\.filmTime) private var film
     @Environment(\.developAmount) private var developAmount
     @Environment(\.pulseTick) private var tick
@@ -717,33 +655,19 @@ struct Hero: View {
     }
 
     @ViewBuilder private func character(in r: CGRect) -> some View {
-        // A different loop is a different view, swapped in a cut on the beat: both sides are in the same key
-        // pose there, and a crossfade would show two characters at once (on the desktop the overlap glows white).
-        let facing = facingLeft ? -1.0 : 1.0
-        let key = "\(mood)|\(walkingNow)|\(heroAct.map { $0.rawValue } ?? "")|\(facing)|\(variant.rawValue)"
+        let sprite = ClawdSprite.size(px: Self.heroPx)
         if compact {
-            ClawdLoop(mood: mood, px: Self.smallPx, act: heroAct)
-                .id(key).transition(.identity).transaction { $0.animation = nil }
-                .offset(x: r.minX, y: r.minY)
+            ClawdLoop(mood: mood, px: Self.smallPx, act: heroAct).offset(x: r.minX, y: r.minY)
+        } else if mood == .working, heroAct == nil, standW == nil {
+            // Working: the whole walk along the bar, on the clock.
+            WalkerBook(offset: walkOffset, width: r.width, px: Self.heroPx).offset(x: r.minX, y: r.minY)
         } else {
-            let w = ClawdSprite.size(px: Self.heroPx).width
-            ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct, facing: facing, variant: variant)
-                .id(key).transition(.identity).transaction { $0.animation = nil }
-                .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
-                .animation(.linear(duration: glideTime ?? Beat.seconds * 1.1), value: standX)
+            // Anything else stays on the spot where the walk stopped, facing the way it was going.
+            let at = ClawdMotion.Walk.state(standW ?? 0)
+            ClawdLoop(mood: mood, px: Self.heroPx, walking: false, act: heroAct, facing: at.turn < 0 ? -1 : 1)
+                .offset(x: r.minX + max(0, r.width - sprite.width) * at.x, y: r.minY)
         }
     }
-
-    /// Which version of the loop this beat plays: easing into the walk, easing out of it, or turning round.
-    private var variant: ClawdMotion.Variant {
-        guard walks, heroAct == nil else { return .steady }
-        if !moving(tick) { return facingLeft(at: tick) != facingLeft(at: tick - 1) ? .turn : .steady }
-        if !moving(tick - 1) { return .start }
-        if !moving(tick + 1) { return .stop }
-        return .steady
-    }
-    private func moving(_ t: Int) -> Bool { position(at: t) != position(at: t - 1) }
-
 
     private var link: some View {
         OpenLink(url: s.url) {
@@ -828,39 +752,7 @@ struct Hero: View {
 
     /// Where the character stands along the bar, 0…1. While working or waiting it paces slowly from end
     /// to end, one step a tick; otherwise it stays over the current step.
-    private var standX: CGFloat {
-        // A reload's first entry: part-way along the current step, where the walker already is.
-        if film == nil, let k = beatPhase {
-            let a = position(at: tick - 1), b = position(at: tick)
-            return a + (b - a) * CGFloat(k)
-        }
-        return CGFloat(Glide.at(film, tick, linear: true) { Double(position(at: $0)) })
-    }
-
-    /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
-    /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
-    /// The character's mood. A change that lands mid-beat waits for the next beat (see `characterMood`).
-    private var mood: Mood { heldMood ?? s.mood }
-    private var walks: Bool { mood == .working }
-    private var walkingNow: Bool { heroAct == nil && walks && position(at: tick) != position(at: tick - 1) }
-    private var facingLeft: Bool { facingLeft(at: tick) }
-    private func facingLeft(at t: Int) -> Bool {
-        let c = ((walkTick(t) % 12) + 12) % 12
-        return c >= 6
-    }
-    /// During a one-off act the walker holds the spot, and the way it faced, from the beat before the act.
-    private func walkTick(_ t: Int) -> Int {
-        if let walkPlan { return walkPlan.tick(t) }
-        guard heroAct != nil, let actTick else { return t }
-        return min(t, actTick - 1)
-    }
-
-    /// Where it stands on the bar: always the walk's own position, never the session's step. Not working,
-    /// the walk is paused, so it stays where it stopped.
-    private func position(at t: Int) -> CGFloat {
-        let c = ((walkTick(t) % 12) + 12) % 12
-        return c <= 5 ? CGFloat(c) / 5 : c == 6 ? 1 : CGFloat(11 - c) / 5
-    }
+    private var mood: Mood { s.mood }
 
     private var chipLabel: String {
         switch s.state {
@@ -1046,11 +938,8 @@ struct PulseWidgetView: View {
             .environment(\.heroImage, entry.heroImage)
             .environment(\.heroAct, entry.act)
             .environment(\.imageDeveloping, entry.developing)
-            .environment(\.heroActTick, entry.actTick)
-            .environment(\.walkPlan, entry.walk)
-            .environment(\.heldMood, entry.characterMood)
-            .environment(\.beatPhase, entry.beatPhase)
-            .environment(\.glideTime, entry.glide)
+            .environment(\.walkOffset, entry.walkOffset)
+            .environment(\.standW, entry.standW)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)
