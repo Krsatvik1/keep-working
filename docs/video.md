@@ -86,4 +86,17 @@ spans the film. The script it was asked to say:
 Not verified: the words the voice actually says, and each phrase landing on its scene. Both need a transcript;
 no speech-to-text model is on this Mac (whisper-cli is installed, without a model).
 
-Still open: Satvik's ears on v3; the install shot waits for the second-Mac test.
+Narration verdict (Satvik): the audio is bad. Dropped.
+
+Sound effects (v4): `Tools/film-sfx.py picture.mp4 music.m4a out.mp4` makes them in code and mixes them with the
+music. Flow Music was asked for a sheet of eight one-shot effects twice; both came back as musical loops, not
+separable sounds. The effects are simple: ticks for clicks and typing, air for the window, 8-bit notes on the
+music's pentatonic (E minor / G major) for wake, needs-you and done, a two-click shutter for the snapshot, and
+a rising pop for each size landing. Their times are written against the cut, so they must follow any re-cut.
+
+Review of the v1 picture (fresh eyes, 11 Nov): what stops it looking finished, in order: the widget and the work
+never share a frame (stage the whole film on the desktop); no opening or poster frame; the chat is a greybox;
+one transition for every scene change; the sizes shot has no words; caption gaps and one ghosted caption at 1.2 s;
+the pointer is missing from the typing and its last click lands on blank card; the end card doesn't loop.
+
+Still open: Satvik's ears on v4; the picture fixes above; the install shot waits for the second-Mac test.
