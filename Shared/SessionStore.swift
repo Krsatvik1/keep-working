@@ -442,6 +442,16 @@ enum PulseLink {
     }
 }
 
+// MARK: - What the widget shows
+
+extension SessionSnapshot {
+    /// Only what the widget draws: a change to anything else (a transcript written again, the exact time of
+    /// the last write) must not reload it, since every reload redraws the widget from scratch.
+    var shownKey: String {
+        "\(id)|\(title)|\(project)|\(kind)|\(state)|\(stepsDone)/\(stepsTotal)|\(detail ?? "")|\(lastActivity.shortAgo)"
+    }
+}
+
 // MARK: - Last image
 
 

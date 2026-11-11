@@ -7,8 +7,18 @@ LS=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.f
 BUILT="build/Build/Products/Release/Keep Working.app"
 DEST="/Applications/Keep Working.app"
 xcodegen generate -q
+rm -rf "$BUILT"
+LOG=build/xcodebuild.log
+mkdir -p build
 xcodebuild -project KeepWorking.xcodeproj -scheme KeepWorking -configuration Release \
-  -derivedDataPath build -allowProvisioningUpdates build | grep -E "error|BUILD" || true
+  -derivedDataPath build -allowProvisioningUpdates build > "$LOG" 2>&1 || true
+grep -E "error:|\*\* BUILD" "$LOG" || true
+# Never touch the installed copy unless the build is whole. A failed build once left a half-built app here,
+# rsync copied it over the installed one without its widget, and macOS took the widget off the desktop.
+if ! grep -q "\*\* BUILD SUCCEEDED \*\*" "$LOG" || [ ! -x "$BUILT/Contents/PlugIns/KeepWorkingWidget.appex/Contents/MacOS/KeepWorkingWidget" ]; then
+  echo "install: build failed, nothing installed (see $LOG)" >&2
+  exit 1
+fi
 pkill -x "Keep Working" || true
 rsync -a --delete "$BUILT/" "$DEST/"
 # xcodebuild also leaves a loose copy of the extension next to the app; unregister and delete both.

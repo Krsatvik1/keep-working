@@ -6,7 +6,7 @@ import os
 // MARK: - Timeline
 
 struct PulseEntry: TimelineEntry {
-    let date: Date
+    var date: Date
     let sessions: [SessionSnapshot]
     let error: String?
     /// Counts up between entries; poses, pulses and the spinning ring animate from one value to the next.
@@ -24,6 +24,12 @@ struct PulseEntry: TimelineEntry {
     /// The hero's mood as the character shows it, when that differs from the session's: a state change that
     /// arrives mid-beat keeps the old loop until the beat, where the two loops meet on the same key pose.
     var characterMood: Mood? = nil
+    /// Set on a reload's first entry: how far through the current beat it lands (0…1). The walker is drawn
+    /// that far along its step, and the next entry finishes the step in the time left, instead of the reload
+    /// snapping it to the step's end.
+    var beatPhase: Double? = nil
+    /// How long the glide into this entry takes (nil: a whole beat).
+    var glide: Double? = nil
 }
 
 /// The walk along the bar runs on its own clock, which stops while the hero takes a snapshot. Without this the
@@ -170,6 +176,19 @@ struct PulseProvider: TimelineProvider {
             UserDefaults.standard.set(hero.id, forKey: key + ".id")
             UserDefaults.standard.set(hero.mood.rawValue, forKey: key + ".mood")
         }
+        // A reload lands mid-beat: start from where the walker is now and finish its step in the time left.
+        let into = base.date.timeIntervalSince1970 / beat
+        let phase = into - into.rounded(.down)
+        if phase < 0.92 {
+            base.beatPhase = phase
+            var finish = base
+            finish.date = base.date.addingTimeInterval(0.05)
+            finish.beatPhase = nil
+            finish.characterMood = base.characterMood
+            finish.glide = max(0.1, (1 - phase) * beat - 0.05)
+            entries.append(finish)
+            entries.sort { $0.date < $1.date }
+        }
         let plan = ImageArrival.walkPlan
         base.walk = plan
         for i in entries.indices { entries[i].walk = plan }
@@ -192,6 +211,8 @@ private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
 private struct ActTickKey: EnvironmentKey { static let defaultValue: Int? = nil }
 private struct WalkPlanKey: EnvironmentKey { static let defaultValue: WalkPlan? = nil }
 private struct HeldMoodKey: EnvironmentKey { static let defaultValue: Mood? = nil }
+private struct BeatPhaseKey: EnvironmentKey { static let defaultValue: Double? = nil }
+private struct GlideKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct FilmTimeKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct DevelopAmountKey: EnvironmentKey { static let defaultValue: Double? = nil }
 
@@ -213,6 +234,14 @@ enum Glide {
 }
 
 extension EnvironmentValues {
+    var beatPhase: Double? {
+        get { self[BeatPhaseKey.self] }
+        set { self[BeatPhaseKey.self] = newValue }
+    }
+    var glideTime: Double? {
+        get { self[GlideKey.self] }
+        set { self[GlideKey.self] = newValue }
+    }
     var heldMood: Mood? {
         get { self[HeldMoodKey.self] }
         set { self[HeldMoodKey.self] = newValue }
@@ -602,6 +631,8 @@ struct Hero: View {
     @Environment(\.heroActTick) private var actTick
     @Environment(\.walkPlan) private var walkPlan
     @Environment(\.heldMood) private var heldMood
+    @Environment(\.beatPhase) private var beatPhase
+    @Environment(\.glideTime) private var glideTime
     @Environment(\.filmTime) private var film
     @Environment(\.developAmount) private var developAmount
     @Environment(\.pulseTick) private var tick
@@ -671,7 +702,7 @@ struct Hero: View {
             ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct, facing: facing, variant: variant)
                 .id(key).transition(.identity).transaction { $0.animation = nil }
                 .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
-                .animation(Beat.linear, value: standX)
+                .animation(.linear(duration: glideTime ?? Beat.seconds * 1.1), value: standX)
         }
     }
 
@@ -769,7 +800,14 @@ struct Hero: View {
 
     /// Where the character stands along the bar, 0…1. While working or waiting it paces slowly from end
     /// to end, one step a tick; otherwise it stays over the current step.
-    private var standX: CGFloat { CGFloat(Glide.at(film, tick, linear: true) { Double(position(at: $0)) }) }
+    private var standX: CGFloat {
+        // A reload's first entry: part-way along the current step, where the walker already is.
+        if film == nil, let k = beatPhase {
+            let a = position(at: tick - 1), b = position(at: tick)
+            return a + (b - a) * CGFloat(k)
+        }
+        return CGFloat(Glide.at(film, tick, linear: true) { Double(position(at: $0)) })
+    }
 
     /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
     /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
@@ -987,6 +1025,8 @@ struct PulseWidgetView: View {
             .environment(\.heroActTick, entry.actTick)
             .environment(\.walkPlan, entry.walk)
             .environment(\.heldMood, entry.characterMood)
+            .environment(\.beatPhase, entry.beatPhase)
+            .environment(\.glideTime, entry.glide)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)

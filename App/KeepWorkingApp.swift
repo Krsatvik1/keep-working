@@ -70,11 +70,20 @@ final class PulseModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
+    /// What the widget showed after the last reload: what it draws, plus the hero's last image.
+    private var shown = ""
+
     func refresh() {
         lastReload = Date()
         let next = SessionStore.load(limit: 10)
-        if next != sessions {
-            sessions = next
+        sessions = next
+        // Reload only when something the widget draws has changed. A working session writes its transcript
+        // many times a minute; reloading on each write redrew the widget mid-step every few seconds.
+        let hero = next.first { $0.state == .waiting } ?? next.first { $0.state == .running } ?? next.first
+        let image = hero?.transcript.flatMap { SessionStore.lastImage(transcript: $0) }?.count ?? 0
+        let key = next.map(\.shownKey).joined(separator: "\n") + "|\(image)"
+        if key != shown {
+            shown = key
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
