@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sound effects for the film, made in code, and the final mix with the music.
 
-  Tools/film-sfx.py picture.mp4 music.m4a out.mp4 [music offset]
+  Tools/film-sfx.py picture.mp4 music.m4a out.mp4 [music offset] [paper|desktop]
 
 Every sound sits on an action in the cut (times below are seconds into the finished film, worked out from
 Script.cut in Film.swift; if the cut changes, these must follow). Tones are simple 8-bit blips on the
@@ -71,33 +71,67 @@ def shutter():
     return s
 
 # --- the film, action by action -----------------------------------------------------------------------
-put(1.10, click(), 0.55)                                   # click the sleeping widget
-put(1.36, whoosh(up=True), 0.30)                           # the chat opens
-for i in range(25):                                        # typing the prompt
-    put(2.00 + 0.056 * i + rng.uniform(-0.006, 0.006), click(rng.uniform(1700, 2600), 0.016), 0.24)
-put(3.95, pop(520.0, 0.09), 0.40)                          # send
-put(5.22, whoosh(up=False), 0.28)                          # back to the widget
-put(5.82, notes([E5, B5], last=0.16), 0.38)                # it wakes
-for t in (7.80, 9.82, 11.80):                              # a step ticks over
-    put(t, blip(E6, 0.06), 0.22)
-put(14.42, shutter(), 0.62)                                # the snapshot
-put(17.86, notes([G5, D6], step=0.11, last=0.2), 0.40)     # needs you: a question
-put(21.40, click(), 0.55)                                  # click "answer in Claude"
-put(21.70, whoosh(up=True), 0.28)
-put(23.00, click(), 0.55)                                  # pick the answer
-put(23.92, whoosh(up=False), 0.26)
-put(24.62, notes([E5, G5, B5, E6], last=0.3), 0.42)        # done
-put(26.85, click(), 0.55)                                  # click the finished card
-put(27.10, whoosh(up=True), 0.28)
-for t in (27.65, 27.79, 27.93, 29.10, 29.24):              # the reply writing itself in
-    put(t, click(2400.0, 0.014), 0.16)
-put(28.30, pop(300.0), 0.42)                               # the image lands
-put(31.25, whoosh(dur=0.45, up=False), 0.28)               # out to the desktop
-for t, f in ((31.79, 262.0), (32.34, 294.0), (32.89, 330.0), (33.44, 392.0)):
-    put(t, pop(f, 0.13), 0.55)                             # each size lands, a step higher
-put(35.25, notes([G5, D6], step=0.11, last=0.2), 0.30)     # all four need you
-put(37.15, whoosh(dur=0.4, up=True), 0.24)                 # the download card
-put(37.75, notes([B5, E6], step=0.12, last=0.3), 0.30)
+layout = sys.argv[5] if len(sys.argv) > 5 else "paper"
+if layout == "paper":
+    put(1.10, click(), 0.55)                                   # click the sleeping widget
+    put(1.36, whoosh(up=True), 0.30)                           # the chat opens
+    for i in range(25):                                        # typing the prompt
+        put(2.00 + 0.056 * i + rng.uniform(-0.006, 0.006), click(rng.uniform(1700, 2600), 0.016), 0.24)
+    put(3.95, pop(520.0, 0.09), 0.40)                          # send
+    put(5.22, whoosh(up=False), 0.28)                          # back to the widget
+    put(5.82, notes([E5, B5], last=0.16), 0.38)                # it wakes
+    for t in (7.80, 9.82, 11.80):                              # a step ticks over
+        put(t, blip(E6, 0.06), 0.22)
+    put(14.42, shutter(), 0.62)                                # the snapshot
+    put(17.86, notes([G5, D6], step=0.11, last=0.2), 0.40)     # needs you: a question
+    put(21.40, click(), 0.55)                                  # click "answer in Claude"
+    put(21.70, whoosh(up=True), 0.28)
+    put(23.00, click(), 0.55)                                  # pick the answer
+    put(23.92, whoosh(up=False), 0.26)
+    put(24.62, notes([E5, G5, B5, E6], last=0.3), 0.42)        # done
+    put(26.85, click(), 0.55)                                  # click the finished card
+    put(27.10, whoosh(up=True), 0.28)
+    for t in (27.65, 27.79, 27.93, 29.10, 29.24):              # the reply writing itself in
+        put(t, click(2400.0, 0.014), 0.16)
+    put(28.30, pop(300.0), 0.42)                               # the image lands
+    put(31.25, whoosh(dur=0.45, up=False), 0.28)               # out to the desktop
+    for t, f in ((31.79, 262.0), (32.34, 294.0), (32.89, 330.0), (33.44, 392.0)):
+        put(t, pop(f, 0.13), 0.55)                             # each size lands, a step higher
+    put(35.25, notes([G5, D6], step=0.11, last=0.2), 0.30)     # all four need you
+    put(37.15, whoosh(dur=0.4, up=True), 0.24)                 # the download card
+    put(37.75, notes([B5, E6], step=0.12, last=0.3), 0.30)
+
+else:
+    # The desktop staging (DesktopFilm). Its events are written on the widget's clock, as in Film.swift, and
+    # mapped through its cut: [-2, 6) then [8, 16) then [18, 42.4).
+    def at(w): return w + 2 if w < 6 else (w if w < 16 else w - 2)
+    put(at(-1.00), click(), 0.55)                                   # click the sleeping widget
+    put(at(-0.72), whoosh(up=True), 0.30)                           # the chat grows out of it
+    for i in range(25):                                             # typing the prompt
+        put(at(-0.10 + 0.056 * i) + rng.uniform(-0.006, 0.006), click(rng.uniform(1700, 2600), 0.016), 0.24)
+    put(at(1.85), pop(520.0, 0.09), 0.40)                           # send
+    put(at(2.02), notes([E5, B5], last=0.16), 0.38)                 # the widget wakes beside the chat
+    put(at(3.02), whoosh(up=False), 0.28)                           # the chat closes
+    for w in (4.0, 8.02, 10.0):                                     # a step ticks over
+        put(at(w), blip(E6, 0.06), 0.22)
+    put(at(12.62), shutter(), 0.62)                                 # the snapshot
+    put(at(18.06), notes([G5, D6], step=0.11, last=0.2), 0.40)      # needs you: a question
+    put(at(21.60), click(), 0.55)                                   # click "answer in Claude"
+    put(at(21.78), whoosh(up=True), 0.28)
+    put(at(23.05), click(), 0.55)                                   # pick the answer
+    put(at(24.07), notes([E5, G5, B5, E6], last=0.3), 0.42)         # done
+    put(at(24.33), whoosh(up=False), 0.26)
+    put(at(26.30), click(), 0.55)                                   # click the finished card
+    put(at(26.53), whoosh(up=True), 0.28)
+    for u in (0.5, 0.64, 0.78, 1.95, 2.09):                         # the reply writing itself in
+        put(at(26.55 + u), click(2400.0, 0.014), 0.16)
+    put(at(27.70), pop(300.0), 0.42)                                # the image lands
+    put(at(30.68), whoosh(dur=0.45, up=False), 0.28)                # the chat closes; out to the whole screen
+    for w, f in ((32.6, 294.0), (33.15, 330.0), (33.7, 392.0)):
+        put(at(w), pop(f, 0.13), 0.55)                              # each other size lands, a step higher
+    put(at(36.06), notes([G5, D6], step=0.11, last=0.2), 0.30)      # all four need you
+    put(at(37.96), whoosh(dur=0.4, up=True), 0.24)                  # the download card
+    put(at(38.55), notes([B5, E6], step=0.12, last=0.3), 0.30)
 
 track = np.clip(track, -0.95, 0.95)[: int(length * SR)]
 sfx_path = out.rsplit(".", 1)[0] + "-sfx.wav"

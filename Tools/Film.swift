@@ -45,7 +45,12 @@ enum Script {
 
     /// The story, one entry per 2 s beat: asleep, working through five steps, a new image (the snapshot act on
     /// beats 6–8, a 6 s boundary), needs you, done; then a busy state for the sizes shot.
-    static func moment(_ n: Int) -> Moment {
+    /// The desktop staging (DesktopFilm) keeps one clock running through the chat scenes, so its ending
+    /// comes two beats later: done holds through beats 14–15, then the sizes shot.
+    static var desktop = false
+    static func moment(_ raw: Int) -> Moment {
+        var n = raw
+        if desktop { if n == 14 || n == 15 { n = 13 } else if n >= 16 { n -= 2 } }
         var star: SessionSnapshot
         var act: ClawdMotion.Act? = nil
         var image: Data? = nil
@@ -149,7 +154,7 @@ enum Script {
     ]
     static let prompt = "Redesign the pricing page"
     /// When the desktop shot gives way to the download card, on the widget's clock.
-    static let endAt = 34.0
+    static var endAt = 34.0
 }
 
 /// The three plan cards of the made-up pricing page: behind the hero as the snapped image, and in the chat.
@@ -246,7 +251,7 @@ struct FilmFrame: View {
 
     // MARK: Widget
 
-    private func tile(_ m: Script.Moment, _ family: WidgetFamily, _ size: CGSize) -> some View {
+    func tile(_ m: Script.Moment, _ family: WidgetFamily, _ size: CGSize) -> some View {
         let image = Script.imageShown(t) ? m.image : nil
         let entry = PulseEntry(date: .now, sessions: m.sessions, error: nil, tick: tick, heroImage: image,
                                act: m.act, developing: false, actTick: m.actTick)
@@ -259,7 +264,7 @@ struct FilmFrame: View {
     }
 
     /// The tile the desktop draws behind a widget: measured from a frame of the real one (704 x 344, radius 27.88).
-    private func chrome<V: View>(_ size: CGSize, @ViewBuilder _ content: () -> V) -> some View {
+    func chrome<V: View>(_ size: CGSize, @ViewBuilder _ content: () -> V) -> some View {
         let shape = RoundedRectangle(cornerRadius: 27.88, style: .continuous)
         return ZStack {
             shape.fill(Color(white: 0.17))
@@ -274,7 +279,7 @@ struct FilmFrame: View {
     /// An entry change, as the desktop shows it. A new state swaps cleanly: the old content is out in five
     /// frames and the new in over the next five, so two layouts never show at once. A new step only changes a
     /// line of text, so the two entries add up to one image and just that line dissolves.
-    @ViewBuilder private func content(_ family: WidgetFamily, _ size: CGSize) -> some View {
+    @ViewBuilder func content(_ family: WidgetFamily, _ size: CGSize) -> some View {
         let now = Script.moment(tick), before = Script.moment(tick - 1)
         let into = t - Double(tick) * Beat.seconds
         let changed = now.signature != before.signature
@@ -385,7 +390,7 @@ struct FilmFrame: View {
     }
 
     /// The character trots on, under the name.
-    private var endCard: some View {
+    var endCard: some View {
         let base = Script.endAt + 0.4
         let rise = { (d: Double) in 18 * (1 - ramp(t, base + d, base + 0.5 + d)) }
         let show = { (d: Double) in ramp(t, base + d, base + 0.5 + d) }
@@ -566,7 +571,7 @@ struct SceneFrame: View {
     let d: Double      // its length
 
     /// Laid out small and drawn a third larger, so its text reads at video size.
-    private static let win = CGSize(width: 1020, height: 585)
+    static let win = CGSize(width: 1020, height: 585)
     private static let zoom = 4.0 / 3
     private static let sent = 2.55, picked = 1.25
 
@@ -599,6 +604,20 @@ struct SceneFrame: View {
         }
         .frame(width: Script.size.width, height: Script.size.height)
         .clipped()
+    }
+
+    /// The window alone, at its own size: the desktop staging places it over the desktop itself.
+    var window: some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return HStack(spacing: 0) { sidebar; main }
+            .frame(width: Self.win.width, height: Self.win.height)
+            .background(Color(white: 0.15))
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: 34, y: 18)
+            .environment(\.colorScheme, .dark)
+            .environment(\.filmTime, u)
+            .environment(\.pulseTick, Int(u / Beat.seconds))
     }
 
     private var caption: String {
@@ -795,13 +814,184 @@ struct SceneFrame: View {
     }
 }
 
+// MARK: - The film, staged on the desktop
+
+/// The same story, but it never leaves the Mac: the widget sits in the top-left corner of a stock desktop from
+/// the first frame, the chat opens over that desktop beside it and closes again, and the other three sizes
+/// land under it at the end. One clock runs throughout (`w`, the widget's clock; the film starts at -2 so the
+/// prompt is sent just as the widget's own beat 1 wakes it).
+struct DesktopFilm: View {
+    let w: Double
+
+    static let cut: [(Double, Double)] = [(-2, 6), (8, 16), (18, 42.4)]
+    static let endAt = 38.0
+    private static let stageY = 430.0
+    private static let slot = CGPoint(x: 24, y: 46)                 // the extra-large widget, in desktop points
+    private static let xl = CGSize(width: 704, height: 344)
+    private static let chat = CGRect(x: 350, y: 70, width: 750, height: 430)
+
+    /// Camera: (clock, scale, the desktop point held at the middle of the stage).
+    private static let keys: [(Double, Double, Double, Double)] = [
+        (-2.0, 1.0417, 720, 352), (-0.9, 1.07, 715, 350),             // the whole screen
+        (-0.3, 1.7, 575, 273), (3.0, 1.7, 575, 273),                  // hero on the left, chat on the right
+        (3.7, 2.3, 400, 218), (6.0, 2.36, 404, 218), (8.0, 2.36, 404, 218), (12.0, 2.42, 392, 218),
+        (12.5, 2.8, 335, 232), (13.5, 2.8, 335, 232), (14.4, 2.4, 396, 218), (16.0, 2.43, 396, 218),
+        (18.0, 2.43, 396, 218), (19.0, 2.1, 440, 240), (21.6, 2.1, 440, 240),
+        (22.1, 1.7, 575, 273), (24.3, 1.7, 575, 273), (24.9, 2.35, 398, 218), (26.4, 2.35, 398, 218),
+        (26.9, 1.7, 575, 273), (30.7, 1.7, 575, 273),
+        (31.6, 1.0417, 720, 352), (34.3, 1.06, 716, 350), (35.5, 1.5, 470, 330), (38.0, 1.54, 470, 330),
+    ]
+    /// Clicks, in desktop points.
+    private static let clicks: [(at: Double, p: CGPoint)] = [
+        (-1.0, CGPoint(x: 274, y: 351)),      // "open in Claude" on the sleeping hero
+        (21.6, CGPoint(x: 274, y: 351)),      // "answer in Claude"
+        (23.05, CGPoint(x: 660, y: 321)),     // the answer chip, in the chat
+        (26.3, CGPoint(x: 185, y: 205)),      // the finished card
+    ]
+    /// The chat's three visits: scene, when it opens and closes, and the point it grows from.
+    private static let visits: [(scene: Script.Scene, open: Double, close: Double, from: CGPoint)] = [
+        (.prompt, -0.70, 3.35, CGPoint(x: 274, y: 351)),
+        (.answer, 21.8, 24.65, CGPoint(x: 274, y: 351)),
+        (.response, 26.55, 31.0, CGPoint(x: 185, y: 205)),
+    ]
+    private static let captions: [(from: Double, to: Double, text: String)] = [
+        (-2.2, -0.75, "A widget for your Claude sessions."),
+        (-0.5, 1.9, "Prompt Claude."),
+        (2.2, 4.7, "Go do something else."),
+        (4.9, 6.0, "It keeps working."),
+        (7.7, 11.7, "Step by step."),
+        (12.3, 16.0, "It snaps each new image."),
+        (18.4, 21.4, "It waves when Claude needs you."),
+        (21.9, 23.9, "Answer in a click."),
+        (24.25, 26.45, "Done."),
+        (26.8, 30.6, "See what it made."),
+        (32.2, 37.7, "Four sizes."),
+    ]
+
+    private var camera: (s: Double, fx: Double, fy: Double) {
+        let keys = Self.keys
+        guard let j = keys.firstIndex(where: { $0.0 > w }) else { let l = keys.last!; return (l.1, l.2, l.3) }
+        guard j > 0 else { let f = keys[0]; return (f.1, f.2, f.3) }
+        let a = keys[j - 1], b = keys[j]
+        let k = ease((w - a.0) / (b.0 - a.0))
+        return (a.1 + (b.1 - a.1) * k, a.2 + (b.2 - a.2) * k, a.3 + (b.3 - a.3) * k)
+    }
+
+    /// Where a desktop point is on screen right now.
+    private func onScreen(_ p: CGPoint) -> CGPoint {
+        let c = camera
+        return CGPoint(x: 960 + (p.x - c.fx) * c.s, y: Self.stageY + (p.y - c.fy) * c.s)
+    }
+
+    var body: some View {
+        let film = FilmFrame(t: w)
+        return ZStack {
+            LinearGradient(colors: [FilmFrame.paperTop, FilmFrame.paperBottom], startPoint: .top, endPoint: .bottom)
+            if w < Self.endAt + 0.5 { desktop(film) }
+            caption
+            pointer
+            if w >= Self.endAt { film.endCard.opacity(ramp(w, Self.endAt, Self.endAt + 0.5)) }
+        }
+        .frame(width: Script.size.width, height: Script.size.height)
+        .clipped()
+    }
+
+    private func desktop(_ film: FilmFrame) -> some View {
+        let c = camera
+        let size = MacDesktop.size
+        let extra: [(WidgetFamily, CGSize, CGPoint, Double)] = [
+            (.systemLarge, CGSize(width: 344, height: 344), CGPoint(x: 24, y: 406), 32.6),
+            (.systemMedium, CGSize(width: 344, height: 164), CGPoint(x: 384, y: 406), 33.15),
+            (.systemSmall, CGSize(width: 164, height: 164), CGPoint(x: 384, y: 586), 33.7),
+        ]
+        let waiting = Script.moment(Int((w / Beat.seconds).rounded(.down))).state == .waiting
+        return ZStack(alignment: .topLeading) {
+            MacDesktop()
+            film.chrome(Self.xl) { film.content(.systemExtraLarge, Self.xl) }
+                .offset(x: Self.slot.x, y: Self.slot.y)
+            ForEach(0..<extra.count, id: \.self) { i in
+                let (family, tile, at, start) = extra[i]
+                if w >= start {
+                    // Each of the other sizes drops into its slot and settles with a small overshoot.
+                    let x = min(1, max(0, (w - start) / 0.42)), back = 1 + 2.3 * pow(x - 1, 3) + 1.3 * pow(x - 1, 2)
+                    film.chrome(tile) {
+                        if family == .systemSmall && waiting {
+                            LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)
+                        }
+                        film.content(family, tile)
+                    }
+                    .scaleEffect(0.88 + 0.12 * back)
+                    .opacity(ramp(w, start, start + 0.16))
+                    .offset(x: at.x, y: at.y - 22 * (1 - back))
+                }
+            }
+            ForEach(0..<Self.visits.count, id: \.self) { i in
+                let v = Self.visits[i]
+                if w >= v.open && w < v.close {
+                    // The window grows out of the spot that was clicked, and goes back into the widget.
+                    let k = ramp(w, v.open, v.open + 0.36) * (1 - ramp(w, v.close - 0.3, v.close))
+                    let zoom = Self.chat.width / SceneFrame.win.width
+                    SceneFrame(scene: v.scene, u: w - v.open, d: 99).window
+                        .scaleEffect(zoom * (0.12 + 0.88 * k))
+                        .opacity(min(1, k * 3))
+                        .position(x: v.from.x + (Self.chat.midX - v.from.x) * k, y: v.from.y + (Self.chat.midY - v.from.y) * k)
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .padding(10)
+        .background(Color.black, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 40, y: 22)
+        .scaleEffect(c.s)
+        .position(x: 960 + (size.width / 2 - c.fx) * c.s, y: Self.stageY + (size.height / 2 - c.fy) * c.s)
+    }
+
+    /// Captions ride on a dark pill, since the backdrop is now a wallpaper.
+    @ViewBuilder private var caption: some View {
+        ForEach(Array(Self.captions.enumerated()), id: \.offset) { _, c in
+            if w >= c.from && w < c.to {
+                let inK = ramp(w, c.from, c.from + 0.28)
+                Text(c.text)
+                    .font(.system(size: 54, weight: .semibold)).tracking(-0.8)
+                    .foregroundStyle(FilmFrame.paperTop)
+                    .padding(.horizontal, 36).frame(height: 98)
+                    .background(FilmFrame.ink.opacity(0.92), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+                    .opacity(inK * (1 - ramp(w, c.to - 0.22, c.to)))
+                    .position(x: 960, y: 972 + 16 * (1 - inK))
+            }
+        }
+    }
+
+    @ViewBuilder private var pointer: some View {
+        ForEach(Array(Self.clicks.enumerated()), id: \.offset) { _, c in
+            if w >= c.at - 1.05 && w < c.at + 0.5 {
+                let to = onScreen(c.p)
+                PointerMark(from: CGPoint(x: to.x + 430, y: to.y + 400), to: to,
+                            k: ramp(w, c.at - 0.95, c.at - 0.1), click: w - c.at)
+                    .opacity(1 - ramp(w, c.at + 0.3, c.at + 0.5))
+            }
+        }
+    }
+}
+
 // MARK: - Render
 
 @main
 enum FilmMain {
     @MainActor static func main() {
         _ = NSApplication.shared
-        let args = Array(CommandLine.arguments.dropFirst())
+        let all = Array(CommandLine.arguments.dropFirst())
+        if all.first == "--desktop-still", all.count >= 3, let w = Double(all[1]) {
+            Script.desktop = true; Script.endAt = DesktopFilm.endAt
+            guard let cg = render(DesktopFilm(w: w)) else { fatalError("no frame") }
+            try! NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: all[2]))
+            return
+        }
+        let staged = all.first == "--desktop"
+        if staged { Script.desktop = true; Script.endAt = DesktopFilm.endAt }
+        let args = staged ? Array(all.dropFirst()) : all
         if args.first == "--scene", args.count >= 4, let u = Double(args[2]) {
             let scene: Script.Scene = args[1] == "answer" ? .answer : args[1] == "response" ? .response : .prompt
             let length = args[1] == "answer" ? 2.4 : args[1] == "response" ? 4.2 : 4.0
@@ -841,7 +1031,14 @@ enum FilmMain {
             written += 1
         }
         let f = Double(Script.fps)
-        for seg in cut {
+        if staged {
+            for (from, to) in DesktopFilm.cut {
+                for i in Int((from * f).rounded())..<Int((to * f).rounded()) {
+                    autoreleasepool { write(render(DesktopFilm(w: Double(i) / f))) }
+                }
+            }
+        }
+        for seg in staged ? [] : cut {
             switch seg {
             case let .widget(from, to, enter, exit):
                 for i in Int((from * f).rounded())..<Int((to * f).rounded()) {

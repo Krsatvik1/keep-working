@@ -101,4 +101,11 @@ the pointer is missing from the typing and its last click lands on blank card; t
 
 Satvik on v4 (music + effects): looks good. `cuts/keep-working-v4-sfx.mp4` is the current best version.
 
-Still open: the picture fixes above; the install shot waits for the second-Mac test.
+Desktop staging (v5): `Tools/film.sh --desktop out.mp4` renders the same story without leaving the Mac. The
+widget sits top-left on the stock desktop from the first frame; the chat grows out of the click, sits beside
+the hero (so you watch it wake as the prompt is sent) and goes back into it; the other three sizes land under
+it at the end. One clock runs throughout. Sound: `Tools/film-sfx.py picture music out 3.5 desktop`.
+`cuts/keep-working-v5-desktop.mp4`. v4 (on paper) is kept alongside it.
+
+Still open: the opening/poster frame and the placeholder chat (low priority, Satvik); the install shot waits
+for the second-Mac test.
