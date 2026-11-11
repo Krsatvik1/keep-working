@@ -331,6 +331,9 @@ struct FilmFrame: View {
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+        // Grouped first: a container's shadow otherwise falls from every label and sprite inside it onto
+        // the card, and those soft inner shadows were the bands in the video.
+        .compositingGroup()
         .shadow(color: .black.opacity(0.30), radius: 26, y: 16)
     }
 
@@ -415,6 +418,9 @@ struct FilmFrame: View {
         .clipShape(screen)
         .padding(11)
         .background(Color.black, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        // Grouped first: a container's shadow otherwise falls from every label and sprite inside it onto
+        // the card, and those soft inner shadows were the bands in the video.
+        .compositingGroup()
         .shadow(color: .black.opacity(0.35), radius: 40, y: 22)
         // A slow drift, then a push in on the widgets once all four have landed.
         .scaleEffect(1 + 0.03 * ramp(t, 28.2, Script.endAt) + 0.3 * ramp(t, 30.9, 32.2), anchor: UnitPoint(x: 0.16, y: 0.3))
@@ -643,6 +649,9 @@ struct SceneFrame: View {
                 .background(Color(white: 0.15))
                 .clipShape(shape)
                 .overlay(shape.strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+                // Grouped first: a container's shadow otherwise falls from every label and sprite inside it onto
+                // the card, and those soft inner shadows were the bands in the video.
+                .compositingGroup()
                 .shadow(color: .black.opacity(0.32), radius: 40, y: 22)
                 .environment(\.colorScheme, .dark)
                 .environment(\.filmTime, u)
@@ -672,6 +681,9 @@ struct SceneFrame: View {
             .background(Color(white: 0.15))
             .clipShape(shape)
             .overlay(shape.strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+            // Grouped first: a container's shadow otherwise falls from every label and sprite inside it onto
+            // the card, and those soft inner shadows were the bands in the video.
+            .compositingGroup()
             .shadow(color: .black.opacity(0.4), radius: 34, y: 18)
             .environment(\.colorScheme, .dark)
             .environment(\.filmTime, u)
@@ -1000,6 +1012,9 @@ struct DesktopFilm: View {
         .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
         .padding(10)
         .background(Color.black, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
+        // Grouped first: a container's shadow otherwise falls from every label and sprite inside it onto
+        // the card, and those soft inner shadows were the bands in the video.
+        .compositingGroup()
         .shadow(color: .black.opacity(0.35), radius: 40, y: 22)
         .scaleEffect(c.s)
         .position(x: 960 + (size.width / 2 - c.fx) * c.s, y: Self.stageY + (size.height / 2 - c.fy) * c.s)
@@ -1069,36 +1084,32 @@ enum FilmMain {
             ? [.widget(Double(args[1]) ?? 0, Double(args[2]) ?? 36, enter: false, exit: false)] : Script.cut
         let w = Int(Script.size.width), h = Int(Script.size.height)
 
-        // Frames are drawn at 16 bits per channel, so soft shadows and glows have smooth ramps even after the
-        // camera zooms them 2–3x. One ffmpeg makes two files from them: a 10-bit HEVC master (no banding, plays
-        // on Apple devices and in Safari) and an 8-bit H.264 copy for uploading, stepped down from 16 bits with
-        // error-diffusion dithering, which is finer than any grain and invisible at normal viewing.
-        let master = out.replacingOccurrences(of: ".mp4", with: "-10bit.mp4")
+        // Frames are drawn on the graphics card, 8-bit, and piped to ffmpeg, which steps them to the video's
+        // colour format with error-diffusion dithering and encodes with settings that keep fine tone (crf 12,
+        // tune grain, aq-mode 3). The bands the video once had came from soft shadows inside the cards (see
+        // .compositingGroup() before each .shadow), not from bit depth, so no slow 16-bit drawing is needed.
         let ffmpeg = Process()
         ffmpeg.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
         let tags = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-movflags", "+faststart"]
-        ffmpeg.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba64le", "-s", "\(w)x\(h)",
+        ffmpeg.arguments = ["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgra", "-s", "\(w)x\(h)",
                             "-r", "\(Script.fps)", "-i", "-", "-an",
-                            "-filter_complex",
-                            "[0:v]format=gbrp16le,split=2[a][b];" +
-                            "[a]zscale=matrix=709:range=limited:dither=error_diffusion,format=yuv420p[u];" +
-                            "[b]zscale=matrix=709:range=limited:dither=error_diffusion,format=yuv420p10le[m]",
-                            "-map", "[u]", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-tune", "grain",
-                            "-x264-params", "aq-mode=3", "-pix_fmt", "yuv420p"] + tags + [out,
-                            "-map", "[m]", "-c:v", "libx265", "-preset", "medium", "-crf", "14", "-pix_fmt", "yuv420p10le",
-                            "-x265-params", "log-level=error:aq-mode=3", "-tag:v", "hvc1"] + tags + [master]
+                            "-vf", "format=gbrp16le,zscale=matrix=709:range=limited:dither=error_diffusion,format=yuv420p",
+                            "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-tune", "grain",
+                            "-x264-params", "aq-mode=3", "-pix_fmt", "yuv420p"] + tags + [out]
         let pipe = Pipe()
         ffmpeg.standardInput = pipe
         try! ffmpeg.run()
 
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        let info = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
-        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 16, bytesPerRow: w * 8, space: space, bitmapInfo: info)!
+        let info = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space, bitmapInfo: info)!
         var written = 0
         func write<V: View>(_ view: V) {
-            draw16(view, into: ctx)
-            pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 8, deallocator: .none))
+            guard let cg = render(view) else { return }
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            pipe.fileHandleForWriting.write(Data(bytesNoCopy: ctx.data!, count: w * h * 4, deallocator: .none))
             written += 1
+            if written % 240 == 0 { print("frame \(written)"); fflush(stdout) }
         }
         let f = Double(Script.fps)
         if staged {
@@ -1125,7 +1136,7 @@ enum FilmMain {
         print("\(written) frames, \(Double(written) / Double(Script.fps)) s")
         try? pipe.fileHandleForWriting.close()
         ffmpeg.waitUntilExit()
-        print("wrote \(out) and \(master)")
+        print("wrote \(out)")
     }
 
     @MainActor static func frame(_ t: Double) -> CGImage? { render(FilmFrame(t: t)) }

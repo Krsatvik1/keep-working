@@ -113,3 +113,10 @@ scrolled out of the top of the answer chat (it has been read by then), and whole
 
 Still open: the opening/poster frame and the placeholder chat (low priority, Satvik); the install shot waits
 for the second-Mac test.
+
+Banding (11 Nov): the blotches in the dark cards came from soft shadows *inside* them. `.shadow` on a container
+without `.compositingGroup()` is cast by every label and sprite in it onto the card, and those 8-bit ramps,
+zoomed 2–3x by the camera, showed as bands. Grouping before each shadow removed them at the source. A 16-bit
+CPU render also fixed it but took over an hour; the fixed GPU render takes under 3 minutes. Grain was tried and
+dropped (too noisy). `film.sh` builds the widget from HEAD (FILM_WIDGET_REV=worktree for the folder), so
+unfinished widget work can't end up in a render.
