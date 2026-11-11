@@ -24,6 +24,7 @@ enum Script {
         var act: ClawdMotion.Act? = nil
         var actTick: Int? = nil
         var image: Data? = nil
+        var walk = WalkPlan()
         /// The hero's state: a change of state swaps the whole layout.
         var state: SessionState = .idle
         /// What a viewer could tell apart from one entry to the next.
@@ -92,7 +93,16 @@ enum Script {
             session("dark", "Dark mode polish", "acme-app", ago: 180_000),
         ]
         let sig = "\(star.state)|\(star.stepsDone)|\(star.detail ?? "")|\(loginState)"
-        return Moment(sessions: [star] + others, act: act, actTick: act == nil ? nil : 6, image: image,
+        // The walk: the snapshot pauses it for beats 6–8, and it stands still while not working (9–13, 16 on).
+        let walk: WalkPlan
+        switch n {
+        case ..<1: walk = WalkPlan(pausedAt: 1)
+        case ..<9: walk = WalkPlan(before: 0, after: 3, actTick: 6)
+        case ..<14: walk = WalkPlan(before: 0, after: 3, actTick: 6, pausedAt: 9)
+        case ..<16: walk = WalkPlan(before: 5, after: 8, actTick: 6)
+        default: walk = WalkPlan(before: 5, after: 8, actTick: 6, pausedAt: 16)
+        }
+        return Moment(sessions: [star] + others, act: act, actTick: act == nil ? nil : 6, image: image, walk: walk,
                       state: star.state, signature: sig)
     }
 
@@ -301,7 +311,7 @@ struct FilmFrame: View {
     func tile(_ m: Script.Moment, _ family: WidgetFamily, _ size: CGSize) -> some View {
         let image = Script.imageShown(t) ? m.image : nil
         let entry = PulseEntry(date: .now, sessions: m.sessions, error: nil, tick: tick, heroImage: image,
-                               act: m.act, developing: false, actTick: m.actTick)
+                               act: m.act, developing: false, actTick: m.actTick, walk: m.walk)
         return PulseWidgetView(entry: entry, forcedFamily: family)
             .environment(\.filmTime, t)
             .environment(\.developAmount, image == nil ? nil : Script.develop(t))
@@ -885,7 +895,7 @@ struct DesktopFilm: View {
         (18.0, 2.43, 396, 218), (19.0, 2.1, 440, 240), (21.6, 2.1, 440, 240),
         (22.1, 1.7, 575, 273), (24.3, 1.7, 575, 273), (24.9, 2.35, 398, 218), (26.4, 2.35, 398, 218),
         (26.9, 1.7, 575, 273), (30.7, 1.7, 575, 273),
-        (31.6, 1.0417, 720, 352), (34.3, 1.06, 716, 350), (35.5, 1.5, 470, 330), (38.0, 1.54, 470, 330),
+        (31.6, 1.0417, 720, 352), (34.3, 1.06, 716, 350), (35.5, 1.5, 540, 316), (38.0, 1.54, 540, 316),
     ]
     /// Clicks, in desktop points.
     private static let clicks: [(at: Double, p: CGPoint)] = [
@@ -948,7 +958,8 @@ struct DesktopFilm: View {
         let extra: [(WidgetFamily, CGSize, CGPoint, Double)] = [
             (.systemLarge, CGSize(width: 344, height: 344), CGPoint(x: 24, y: 406), 32.6),
             (.systemMedium, CGSize(width: 344, height: 164), CGPoint(x: 384, y: 406), 33.15),
-            (.systemSmall, CGSize(width: 164, height: 164), CGPoint(x: 384, y: 586), 33.7),
+            // Beside the big one, top right: clear of the caption at the bottom of the frame.
+            (.systemSmall, CGSize(width: 164, height: 164), CGPoint(x: 744, y: 46), 33.7),
         ]
         let waiting = Script.moment(Int((w / Beat.seconds).rounded(.down))).state == .waiting
         return ZStack(alignment: .topLeading) {
