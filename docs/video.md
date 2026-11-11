@@ -64,8 +64,12 @@ session list and marks are the widget's. About 39 s:
    menu bar, a few files on the right), so nothing personal is in it. Then the download card: "Download for
    macOS" and the repo link.
 
-Music: an instrumental made in Google Flow Music on Satvik's account ("Pixel Widget Demo", take 1; an alternate
-take is in the same Flow session). `Tools/film-music.sh in.mp4 out.mp4` lays it under a cut, starting 2.1 s
-into the track, with a fade-out and loudness set for the web. The audio file stays in `build/film-assets`.
+Music: two instrumentals made in Google Flow Music on Satvik's account, session "Chiptune Product Demo".
+`Tools/film-music.sh in.mp4 out.mp4 [music] [offset]` lays one under a cut, with a fade-out and web loudness.
+- **v1, bouncy** ("Pixel Widget Demo", take 1), from 2.1 s in. Satvik: good, keep it.
+- **v2, calm** ("Pixel Widget Demo (Calm Take)"), from 10.5 s in, so its light groove starts as the widget wakes
+  and its own ending falls on the download card.
 
-Still open: Satvik hasn't heard the music against the picture yet; the install shot waits for the second-Mac test.
+Finished versions and the audio live in `cuts/` (ignored by git, and safe from build clean-ups).
+
+Still open: pick between v1 and v2; the install shot waits for the second-Mac test.

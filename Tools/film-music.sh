@@ -1,10 +1,10 @@
 #!/bin/zsh
 # Lays the music under a rendered cut.   Tools/film-music.sh in.mp4 out.mp4 [music file] [offset seconds]
-# The track (build/film-assets/music-take1.m4a, made in Google Flow Music, not in git) starts 2.1 s in, so
+# The default track (cuts/music-bouncy.m4a, made in Google Flow Music, not in git) starts 2.1 s in, so
 # its groove lands as the film cuts back to the widget and its return lands on the download card.
 set -e
 cd "$(dirname "$0")/.."
-IN="$1"; OUT="$2"; MUSIC="${3:-build/film-assets/music-take1.m4a}"; AT="${4:-2.1}"
+IN="$1"; OUT="$2"; MUSIC="${3:-cuts/music-bouncy.m4a}"; AT="${4:-2.1}"
 LEN=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$IN")
 FADE=$(python3 -c "print(max(0, $LEN - 2.1))")
 ffmpeg -y -loglevel error -i "$IN" -ss "$AT" -i "$MUSIC" \
