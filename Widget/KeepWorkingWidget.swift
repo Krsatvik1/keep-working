@@ -17,6 +17,8 @@ struct PulseEntry: TimelineEntry {
     var act: ClawdMotion.Act? = nil
     /// The moment of the flash: the new image is bright and soft, just "developed".
     var developing = false
+    /// The session in the hero spot (see `HeroPick`); nil: the first of `ordered`.
+    var heroID: String? = nil
     /// While the hero walks its bar, the walk's time is the clock's minus this.
     var walkOffset = 0.0
     /// The walk's time while the hero stands still (not working, or taking a snapshot); nil while it walks.
@@ -28,72 +30,110 @@ struct PulseEntry: TimelineEntry {
 /// defaults, so every size and every reload agrees.
 enum WalkClock {
     private static let d = UserDefaults.standard
-    private static var offset: Double { d.double(forKey: "walkclock.offset") }
-    private static var paused: Double? { d.object(forKey: "walkclock.paused") as? Double }
-    private static var act: Double? { d.object(forKey: "walkclock.act") as? Double }
+    private static func k(_ id: String, _ name: String) -> String { "walkclock.\(id).\(name)" }
+    private static func offset(_ id: String) -> Double { d.double(forKey: k(id, "offset")) }
+    private static func paused(_ id: String) -> Double? { d.object(forKey: k(id, "paused")) as? Double }
+    private static func act(_ id: String) -> Double? { d.object(forKey: k(id, "act")) as? Double }
 
-    /// The hero's state now: stop the walk, or start it again where it stopped.
-    static func update(working: Bool, now: Double) {
-        if let a = act, now >= a + ClawdMotion.actLength {      // a finished snapshot: the walk lost its length
-            d.set(offset + ClawdMotion.actLength, forKey: "walkclock.offset")
-            d.removeObject(forKey: "walkclock.act")
+    /// Each session's walk keeps its own time. It runs only while that session is the hero and working;
+    /// otherwise it stands where it stopped, and picks up from there when the session is back in front.
+    static func update(_ id: String, walking: Bool, now: Double) {
+        if let a = act(id), now >= a + ClawdMotion.actLength {      // a finished snapshot: the walk lost its length
+            d.set(offset(id) + ClawdMotion.actLength, forKey: k(id, "offset"))
+            d.removeObject(forKey: k(id, "act"))
         }
-        if !working, paused == nil {
-            d.set(fields(at: now).standW ?? now - offset, forKey: "walkclock.paused")
-            d.removeObject(forKey: "walkclock.act")
-        } else if working, let p = paused {
-            d.set(now - p, forKey: "walkclock.offset")
-            d.removeObject(forKey: "walkclock.paused")
+        if !walking, paused(id) == nil {
+            d.set(fields(id, at: now).standW ?? now - offset(id), forKey: k(id, "paused"))
+            d.removeObject(forKey: k(id, "act"))
+        } else if walking, let p = paused(id) {
+            d.set(now - p, forKey: k(id, "offset"))
+            d.removeObject(forKey: k(id, "paused"))
         }
     }
 
     /// A snapshot is coming at `start`: the walk stands still for it.
-    static func scheduleAct(start: Double) {
-        if paused == nil { d.set(start, forKey: "walkclock.act") }
+    static func scheduleAct(_ id: String, start: Double) {
+        if paused(id) == nil { d.set(start, forKey: k(id, "act")) }
     }
+    static func cancelAct(_ id: String) { d.removeObject(forKey: k(id, "act")) }
 
     /// What an entry shown at `t` needs: the walk's offset, and where it stands if it isn't walking then.
-    static func fields(at t: Double) -> (offset: Double, standW: Double?) {
-        if let p = paused { return (offset, p) }
-        guard let a = act else { return (offset, nil) }
-        if t < a { return (offset, nil) }
-        if t < a + ClawdMotion.actLength { return (offset, a - offset) }
-        return (offset + ClawdMotion.actLength, nil)
+    static func fields(_ id: String, at t: Double) -> (offset: Double, standW: Double?) {
+        let o = offset(id)
+        if let p = paused(id) { return (o, p) }
+        guard let a = act(id) else { return (o, nil) }
+        if t < a { return (o, nil) }
+        if t < a + ClawdMotion.actLength { return (o, a - o) }
+        return (o + ClawdMotion.actLength, nil)
+    }
+}
+
+/// Which session the hero shows. Needs you comes first; among working sessions, the one with the most recent
+/// reply. Whichever holds the spot keeps it for at least `hold` seconds, and never loses it mid-snapshot.
+enum HeroPick {
+    private static let d = UserDefaults.standard
+    static let hold = 5.0
+
+    /// The hero's id, and when to look again if a change is being held off.
+    static func pick(_ sessions: [SessionSnapshot], now: Double) -> (id: String?, recheck: Double?) {
+        guard let best = ordered(sessions).first else { return (nil, nil) }
+        let current = d.string(forKey: "hero.id")
+        let since = d.double(forKey: "hero.since")
+        if let current, current != best.id, sessions.contains(where: { $0.id == current }) {
+            let busyUntil = max(since + hold, ImageArrival.actEnd(current) ?? 0)
+            if now < busyUntil { return (current, busyUntil + 0.1) }
+        }
+        if current != best.id {
+            d.set(best.id, forKey: "hero.id")
+            d.set(now, forKey: "hero.since")
+        }
+        return (best.id, nil)
     }
 }
 
 enum ImageArrival {
     private static let d = UserDefaults.standard
+    private static func k(_ id: String, _ name: String) -> String { "image.\(id).\(name)" }
 
-    /// When the act starts (on a multiple of the act's length, so the flip-book begins at its first frame)
-    /// and the image to keep showing until then. Nil when nothing new arrived in the last few seconds.
-    static func note(session: String?, image: Data?, now: Date) -> (start: Date, previous: Data?)? {
-        guard let session, let image else { return nil }
-        let key = "\(session):\(fnv(image))"
-        let old = d.string(forKey: "arrival.key")
-        if old != key {
-            let sameSession = old?.hasPrefix(session + ":") ?? false
-            let previous = d.data(forKey: "arrival.image")
-            d.set(key, forKey: "arrival.key")
-            d.set(image, forKey: "arrival.image")
-            if sameSession {
-                let len = ClawdMotion.actLength
-                // On a whole multiple of the act's length (that is when its flip-book starts), and far enough off
-                // for an entry dated a display-lag early to still be in the future.
-                let start = ((now.timeIntervalSince1970 + Beat.displayLag + 0.5) / len).rounded(.up) * len
-                d.set(start, forKey: "arrival.start")
-                d.set(previous, forKey: "arrival.previous")
-                WalkClock.scheduleAct(start: start)
-                Logger(subsystem: "xyz.krsatvik.KeepWorking", category: "arrival")
-                    .info("new image in the hero session, snapshot act at \(start, privacy: .public)")
-            } else {
-                // A different session took the hero spot: its image just appears, no act.
-                d.removeObject(forKey: "arrival.start")
-            }
+    /// The end of a snapshot that is under way for this session, if one is.
+    static func actEnd(_ id: String) -> Double? {
+        let s = d.double(forKey: k(id, "act"))
+        return s > 0 ? s + ClawdMotion.actLength : nil
+    }
+
+    /// Each session remembers the last image it has revealed. When the hero's latest image hasn't been
+    /// revealed (new, or it came in while another session was in front), the snapshot plays, and only once it
+    /// has played to the end does the image count as revealed. Returns when the act starts and the image to
+    /// show until the flash; nil when there's nothing to reveal.
+    static func note(hero id: String?, image: Data?, others: [String], now: Date) -> (start: Date, previous: Data?)? {
+        let t = now.timeIntervalSince1970
+        // A session that left the hero spot mid-snapshot hasn't revealed its image: it plays again next time.
+        for o in others where o != id {
+            if let end = actEnd(o), t < end { d.removeObject(forKey: k(o, "act")); WalkClock.cancelAct(o) }
         }
-        let start = d.double(forKey: "arrival.start")
-        guard start > 0, now.timeIntervalSince1970 < start + ClawdMotion.actLength else { return nil }
-        return (Date(timeIntervalSince1970: start), d.data(forKey: "arrival.previous"))
+        guard let id, let image else { return nil }
+        let hash = fnv(image)
+        if d.string(forKey: k(id, "revealed")) == hash { return nil }
+        let start = d.double(forKey: k(id, "act"))
+        if start > 0, d.string(forKey: k(id, "actHash")) == hash {
+            if t >= start + ClawdMotion.actLength {
+                d.set(hash, forKey: k(id, "revealed"))
+                d.set(image, forKey: k(id, "revealedData"))
+                d.removeObject(forKey: k(id, "act"))
+                return nil
+            }
+            return (Date(timeIntervalSince1970: start), d.data(forKey: k(id, "revealedData")))
+        }
+        // On a whole multiple of the act's length (that is when its flip-book starts), and far enough off for an
+        // entry dated a display-lag early to still be in the future.
+        let len = ClawdMotion.actLength
+        let at = ((t + Beat.displayLag + 0.5) / len).rounded(.up) * len
+        d.set(at, forKey: k(id, "act"))
+        d.set(hash, forKey: k(id, "actHash"))
+        WalkClock.scheduleAct(id, start: at)
+        Logger(subsystem: "xyz.krsatvik.KeepWorking", category: "arrival")
+            .info("unrevealed image for \(id, privacy: .public), snapshot act at \(at, privacy: .public)")
+        return (Date(timeIntervalSince1970: at), d.data(forKey: k(id, "revealedData")))
     }
 
     /// A stable hash (Swift's own is seeded per process).
@@ -134,17 +174,24 @@ struct PulseProvider: TimelineProvider {
     /// and the spinning ring all run on the clock, so a reload redraws the same picture and changes nothing on
     /// screen, however often reloads come.
     func getTimeline(in context: Context, completion: @escaping (Timeline<PulseEntry>) -> Void) {
-        var base = load()
-        let now = base.date.timeIntervalSince1970
-        let hero = ordered(base.sessions).first
-        let newImage = base.heroImage
-        WalkClock.update(working: hero?.state == .running, now: now)
-        let arrival = ImageArrival.note(session: hero?.id, image: newImage, now: base.date)
+        let sessions = SessionStore.load(limit: 10)
+        let date = Date.now
+        let now = date.timeIntervalSince1970
+        let picked = HeroPick.pick(sessions, now: now)
+        let hero = sessions.first { $0.id == picked.id }
+        let newImage = hero?.transcript.flatMap { SessionStore.lastImage(transcript: $0) }
+        var base = PulseEntry(date: date, sessions: sessions, error: sessions.isEmpty ? SessionStore.lastError : nil,
+                              heroImage: newImage)
+        base.heroID = hero?.id
+        for s in sessions { WalkClock.update(s.id, walking: s.id == hero?.id && s.state == .running, now: now) }
+        let arrival = ImageArrival.note(hero: hero?.id, image: newImage, others: sessions.map(\.id), now: date)
         let actStart = arrival?.start.timeIntervalSince1970
+        let heroID = hero?.id ?? ""
 
         /// Makes `e` look the way the widget should at clock time `shown`.
         func fill(_ e: inout PulseEntry, _ shown: Double) {
-            let walk = WalkClock.fields(at: shown)
+            e.heroID = hero?.id
+            let walk = WalkClock.fields(heroID, at: shown)
             e.walkOffset = walk.offset
             e.standW = walk.standW
             guard let arrival, let s = actStart else { return }
@@ -159,16 +206,20 @@ struct PulseProvider: TimelineProvider {
         if let s = actStart {
             // The act starts, the flash, the picture settles, the act ends: each dated a display-lag early.
             for shown in [s, s + ClawdMotion.flashAt, s + ClawdMotion.flashAt + 0.4, s + ClawdMotion.actLength] {
-                let date = shown - Beat.displayLag
-                guard date > now + 0.05 else { continue }
-                var e = PulseEntry(date: Date(timeIntervalSince1970: date), sessions: base.sessions, error: base.error,
+                let at = shown - Beat.displayLag
+                guard at > now + 0.05 else { continue }
+                var e = PulseEntry(date: Date(timeIntervalSince1970: at), sessions: sessions, error: base.error,
                                    heroImage: newImage)
                 fill(&e, shown)
                 entries.append(e)
             }
         }
-        // The menu-bar app reloads on every visible change and once a minute; this is only a fallback.
-        completion(Timeline(entries: [base] + entries, policy: .after(base.date.addingTimeInterval(900))))
+        // Look again when a held-off hero change is due, and once the snapshot is over (to mark it revealed).
+        // Otherwise the menu-bar app reloads on every visible change and once a minute; 15 min is a fallback.
+        var next = now + 900
+        if let r = picked.recheck { next = min(next, r) }
+        if let s = actStart { next = min(next, s + ClawdMotion.actLength + 0.2) }
+        completion(Timeline(entries: [base] + entries, policy: .after(Date(timeIntervalSince1970: next))))
     }
 
     private func load() -> PulseEntry {
@@ -288,12 +339,18 @@ extension SessionSnapshot {
 }
 
 /// Urgent first (needs you, then running), then most recent.
+/// `ordered`, with the chosen hero moved to the front.
+func ordered(_ sessions: [SessionSnapshot], hero: String?) -> [SessionSnapshot] {
+    var list = ordered(sessions)
+    if let hero, let i = list.firstIndex(where: { $0.id == hero }), i > 0 { list.insert(list.remove(at: i), at: 0) }
+    return list
+}
+
 func ordered(_ sessions: [SessionSnapshot]) -> [SessionSnapshot] {
     let rank: [SessionState: Int] = [.waiting: 0, .running: 1, .done: 2, .idle: 2]
     return sessions.sorted {
         let (a, b) = (rank[$0.state] ?? 3, rank[$1.state] ?? 3)
         if a != b { return a < b }
-        if $0.state == .running, ($0.stepsTotal > 0) != ($1.stepsTotal > 0) { return $0.stepsTotal > 0 }
         return $0.lastActivity > $1.lastActivity
     }
 }
@@ -915,7 +972,7 @@ struct PulseWidgetView: View {
     var forcedFamily: WidgetFamily? = nil   // for the render harness
 
     private var smallWaiting: Bool {
-        (forcedFamily ?? family) == .systemSmall && ordered(entry.sessions).first?.state == .waiting
+        (forcedFamily ?? family) == .systemSmall && ordered(entry.sessions, hero: entry.heroID).first?.state == .waiting
     }
 
     var body: some View {
@@ -923,7 +980,7 @@ struct PulseWidgetView: View {
             if entry.sessions.isEmpty {
                 EmptyState(error: entry.error, showsCharacter: (forcedFamily ?? family) != .systemSmall)
             } else {
-                let list = ordered(entry.sessions)
+                let list = ordered(entry.sessions, hero: entry.heroID)
                 switch forcedFamily ?? family {
                 case .systemSmall:
                     Hero(s: list[0], compact: true, fullBleed: true,

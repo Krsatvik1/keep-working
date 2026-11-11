@@ -84,9 +84,12 @@ final class PulseModel: ObservableObject {
         shownAges = ageKey
         // Reload only when something the widget draws has changed. A working session writes its transcript
         // many times a minute; reloading on each write redrew the widget mid-step every few seconds.
-        let hero = next.first { $0.state == .waiting } ?? next.first { $0.state == .running } ?? next.first
-        let image = hero?.transcript.flatMap { SessionStore.lastImage(transcript: $0) }?.count ?? 0
-        let key = next.map(\.shownKey).joined(separator: "\n") + "|\(image)"
+        // The widget's hero is "needs you" first, then the working session with the newest reply; reload when
+        // that changes, or when any working session's latest image changes (it may be waiting to be revealed).
+        let lead = next.first { $0.state == .waiting } ?? next.first { $0.state == .running }
+        let images = next.filter { $0.state == .running || $0.state == .waiting }
+            .map { "\($0.id):\($0.transcript.flatMap { SessionStore.lastImage(transcript: $0) }?.count ?? 0)" }
+        let key = next.map(\.shownKey).joined(separator: "\n") + "|\(lead?.id ?? "")|" + images.joined(separator: ",")
         if key != shown {
             shown = key
             WidgetCenter.shared.reloadAllTimelines()
