@@ -64,5 +64,8 @@ session list and marks are the widget's. About 39 s:
    menu bar, a few files on the right), so nothing personal is in it. Then the download card: "Download for
    macOS" and the repo link.
 
-Still open: music (Google Flow needs Satvik to accept its privacy notice first), and the install shot
-(waits for the second-Mac test).
+Music: an instrumental made in Google Flow Music on Satvik's account ("Pixel Widget Demo", take 1; an alternate
+take is in the same Flow session). `Tools/film-music.sh in.mp4 out.mp4` lays it under a cut, starting 2.1 s
+into the track, with a fade-out and loudness set for the web. The audio file stays in `build/film-assets`.
+
+Still open: Satvik hasn't heard the music against the picture yet; the install shot waits for the second-Mac test.
