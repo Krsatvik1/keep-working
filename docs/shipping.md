@@ -55,3 +55,7 @@ Satvik's go: the repo is public and open source. v1.0 is on GitHub Releases as `
 Applications shortcut; `release.sh` builds it). The download page is krsatvik.xyz/get-keep-working, which links
 `releases/latest/download/KeepWorking.dmg`. Still Apple Development–signed and not notarized; the second-Mac test is
 still untested.
+
+Route settled (Satvik, 11 Nov): the DMG with the one-time Open Anyway step is the only route. No Terminal
+installer and no Apple Developer account for now. The repo is MIT-licensed, its README leads with download,
+install and privacy, and the repo's homepage is the download page.
