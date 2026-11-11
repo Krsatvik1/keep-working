@@ -19,6 +19,26 @@ struct PulseEntry: TimelineEntry {
     var developing = false
     /// The beat the act started on. The walker holds the spot it had then until the act is over.
     var actTick: Int? = nil
+    /// How the walk along the bar is paused by snapshot acts, so it always picks up where it stopped.
+    var walk = WalkPlan()
+}
+
+/// The walk along the bar runs on its own clock, which stops while the hero takes a snapshot. Without this the
+/// walker freezes for the act and then lurches to where the walk "should" be by now; with it, it carries on from
+/// the very spot it stopped on. `before`/`after` are the beats the walk has lost to acts, before and after the
+/// latest one; `actTick` is the beat that act began on.
+struct WalkPlan: Equatable {
+    var before = 0, after = 0
+    var actTick: Int? = nil
+    static let actBeats = Int((ClawdMotion.actLength / Beat.seconds).rounded())
+
+    /// The walk's own beat at timeline beat `t`.
+    func tick(_ t: Int) -> Int {
+        guard let a = actTick else { return t - after }
+        if t < a { return t - before }
+        if t < a + Self.actBeats { return a - 1 - before }   // standing still for the act
+        return t - after
+    }
 }
 
 /// Notices when the hero session's last image changes and schedules the snapshot act for it. Kept in the
@@ -42,6 +62,11 @@ enum ImageArrival {
                 let start = (now.timeIntervalSince1970 / len).rounded(.up) * len
                 d.set(start, forKey: "arrival.start")
                 d.set(previous, forKey: "arrival.previous")
+                // The walk stands still for the act: it loses that many beats from here on.
+                let lost = d.integer(forKey: "walk.after")
+                d.set(lost, forKey: "walk.before")
+                d.set(lost + WalkPlan.actBeats, forKey: "walk.after")
+                d.set(Int(start / Beat.seconds), forKey: "walk.actTick")
                 Logger(subsystem: "xyz.krsatvik.KeepWorking", category: "arrival")
                     .info("new image in the hero session, snapshot act at \(start, privacy: .public)")
             } else {
@@ -52,6 +77,13 @@ enum ImageArrival {
         let start = d.double(forKey: "arrival.start")
         guard start > 0, now.timeIntervalSince1970 < start + ClawdMotion.actLength else { return nil }
         return (Date(timeIntervalSince1970: start), d.data(forKey: "arrival.previous"))
+    }
+
+    /// The walk's pauses so far, for every entry of a timeline (acts long past just leave their lost beats).
+    static var walkPlan: WalkPlan {
+        let a = d.integer(forKey: "walk.actTick")
+        return WalkPlan(before: d.integer(forKey: "walk.before"), after: d.integer(forKey: "walk.after"),
+                        actTick: a > 0 ? a : nil)
     }
 
     /// A stable hash (Swift's own is seeded per process).
@@ -122,6 +154,9 @@ struct PulseProvider: TimelineProvider {
             }
             entries.sort { $0.date < $1.date }
         }
+        let plan = ImageArrival.walkPlan
+        base.walk = plan
+        for i in entries.indices { entries[i].walk = plan }
         // The menu-bar app also nudges a reload whenever a session file changes.
         completion(Timeline(entries: [base] + entries, policy: .after(entries.last!.date)))
     }
@@ -139,6 +174,7 @@ private struct HeroImageKey: EnvironmentKey { static let defaultValue: Data? = n
 private struct HeroActKey: EnvironmentKey { static let defaultValue: ClawdMotion.Act? = nil }
 private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
 private struct ActTickKey: EnvironmentKey { static let defaultValue: Int? = nil }
+private struct WalkPlanKey: EnvironmentKey { static let defaultValue: WalkPlan? = nil }
 private struct FilmTimeKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct DevelopAmountKey: EnvironmentKey { static let defaultValue: Double? = nil }
 
@@ -160,6 +196,10 @@ enum Glide {
 }
 
 extension EnvironmentValues {
+    var walkPlan: WalkPlan? {
+        get { self[WalkPlanKey.self] }
+        set { self[WalkPlanKey.self] = newValue }
+    }
     var heroActTick: Int? {
         get { self[ActTickKey.self] }
         set { self[ActTickKey.self] = newValue }
@@ -539,6 +579,7 @@ struct Hero: View {
     @Environment(\.heroAct) private var heroAct
     @Environment(\.imageDeveloping) private var developing
     @Environment(\.heroActTick) private var actTick
+    @Environment(\.walkPlan) private var walkPlan
     @Environment(\.filmTime) private var film
     @Environment(\.developAmount) private var developAmount
     @Environment(\.pulseTick) private var tick
@@ -707,6 +748,7 @@ struct Hero: View {
     }
     /// During a one-off act the walker holds the spot, and the way it faced, from the beat before the act.
     private func walkTick(_ t: Int) -> Int {
+        if let walkPlan, walkPlan.actTick != nil || walkPlan.after != 0 { return walkPlan.tick(t) }
         guard heroAct != nil, let actTick else { return t }
         return min(t, actTick - 1)
     }
@@ -906,6 +948,7 @@ struct PulseWidgetView: View {
             .environment(\.heroAct, entry.act)
             .environment(\.imageDeveloping, entry.developing)
             .environment(\.heroActTick, entry.actTick)
+            .environment(\.walkPlan, entry.walk)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)

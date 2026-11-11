@@ -2,3 +2,4 @@ build/
 *.xcodeproj/
 DerivedData/
 .DS_Store
+cuts/
