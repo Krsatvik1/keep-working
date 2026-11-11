@@ -1,7 +1,41 @@
 # Keep Working
 
+![Keep Working: a Claude session that needs you, on the Mac desktop](docs/media/keep-working.jpg)
+
+Your Claude sessions, on your Mac desktop. A little character walks the steps while Claude works, snaps a
+photo when a new image arrives, waves when Claude needs you, and celebrates when it's done. One click opens
+that chat.
+
+**[Download for macOS](https://github.com/Krsatvik1/keep-working/releases/latest/download/KeepWorking.dmg)** ·
+[see it move](https://www.krsatvik.xyz/get-keep-working) · macOS 14 or later
+
+## Install
+
+1. Open `KeepWorking.dmg` and drag Keep Working into Applications.
+2. Open it. The first time, macOS stops it (it isn't notarized): click **Done**.
+3. System Settings → Privacy & Security → scroll down → **Open Anyway**, then Touch ID or your password.
+4. Right-click the desktop → **Edit Widgets** → Keep Working → drag a size onto the desktop.
+
+Keep the menu-bar app (the head icon) running: it passes clicks to Claude and keeps the widget fresh.
+Turn on **Open at login** in its menu so it's there after a restart.
+
+Works with Claude Code in the terminal and in the Claude desktop app. Chats on claude.ai in a browser
+don't show up: they leave nothing on your Mac.
+
+## Privacy
+
+Read-only and local. It reads Claude's own session files (`~/.claude/` and
+`~/Library/Application Support/Claude/`), writes nothing there, and makes no network requests.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+---
+
+# How it works
+
 A macOS desktop widget showing your 10 most recent Claude sessions and how far along each one is.
-Click a row to open that session in the Claude app.
 
 ## What it shows
 
