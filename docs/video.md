@@ -72,4 +72,18 @@ Music: two instrumentals made in Google Flow Music on Satvik's account, session 
 
 Finished versions and the audio live in `cuts/` (ignored by git, and safe from build clean-ups).
 
-Still open: pick between v1 and v2; the install shot waits for the second-Mac test.
+Satvik's pick: v1, the bouncy take. v2 is kept but not preferred.
+
+Narration (v3): a spoken voiceover made in the same Flow Music session ("Keep Working Voiceover", alt take,
+`cuts/voice-b.m4a`), laid over the v1 music by `Tools/film-narrate.py`, which evens out the read's pauses so it
+spans the film. The script it was asked to say:
+
+> This is Keep Working. A little widget for your Claude sessions. Give Claude a job. Then go do something else.
+> It keeps working, step by step, right on your desktop. New image? It takes a snapshot. And when Claude needs
+> you, it waves. One click, and you are back in the chat. Done. See what it made. Four sizes, wherever you like
+> them. Keep Working. Free, for macOS.
+
+Not verified: the words the voice actually says, and each phrase landing on its scene. Both need a transcript;
+no speech-to-text model is on this Mac (whisper-cli is installed, without a model).
+
+Still open: Satvik's ears on v3; the install shot waits for the second-Mac test.
