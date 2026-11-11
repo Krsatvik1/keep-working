@@ -122,3 +122,7 @@ dropped (too noisy). `film.sh` builds the widget from HEAD (FILM_WIDGET_REV=work
 unfinished widget work can't end up in a render.
 
 Satvik on the debanded v5: clean. `cuts/keep-working-v5-desktop.mp4` is the current final.
+
+Music ending (11 Nov): the 2 s fade-out ran over a strong beat. Now the track jumps forward exactly 10 bars on a beat
+as the download card arrives (`MUSIC_EDIT=35.95:20.0 Tools/film-sfx.py ...`), so it plays its own last hit at
+~39.5 s and stops. The faded version is kept as `cuts/keep-working-v5-desktop-fadeout.mp4`.

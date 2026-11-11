@@ -139,8 +139,22 @@ with wave.open(sfx_path, "wb") as w:
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
     w.writeframes((track * 32767).astype("<i2").tobytes())
 
-fade = max(0, length - 2.1)
-graph = (f"[1:a]afade=t=in:d=0.35,afade=t=out:st={fade:.2f}:d=2.1,loudnorm=I=-17:TP=-2:LRA=11[m];"
+# The music's own ending, instead of a fade: at "splice" (film seconds, on a beat) the track jumps forward a
+# whole number of bars ("jump" seconds), so its final hit lands just before the film ends and it stops cleanly.
+# Set MUSIC_EDIT=splice:jump (e.g. 35.95:20.0); without it the music fades out over the last 2.1 s.
+import os
+edit = os.environ.get("MUSIC_EDIT")
+if edit:
+    splice, jump = (float(v) for v in edit.split(":"))
+    x = 0.06
+    music_chain = (f"[1:a]asplit[ma][mb];[ma]atrim=0:{splice + x:.3f}[m1];"
+                   f"[mb]atrim={splice + jump - x:.3f},asetpts=PTS-STARTPTS[m2];"
+                   f"[m1][m2]acrossfade=d={2 * x:.3f}:c1=tri:c2=tri,afade=t=in:d=0.35,"
+                   f"afade=t=out:st={length - 0.25:.2f}:d=0.25,loudnorm=I=-17:TP=-2:LRA=11[m];")
+else:
+    fade = max(0, length - 2.1)
+    music_chain = f"[1:a]afade=t=in:d=0.35,afade=t=out:st={fade:.2f}:d=2.1,loudnorm=I=-17:TP=-2:LRA=11[m];"
+graph = (music_chain +
          f"[2:a]aformat=channel_layouts=stereo,volume=1.0[s];[m][s]amix=inputs=2:normalize=0,alimiter=limit=0.9[a]")
 subprocess.check_call(["ffmpeg", "-y", "-loglevel", "error", "-i", picture, "-ss", str(music_at), "-i", music,
                        "-i", sfx_path, "-filter_complex", graph, "-map", "0:v", "-map", "[a]", "-c:v", "copy",
