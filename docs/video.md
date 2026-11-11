@@ -99,4 +99,6 @@ never share a frame (stage the whole film on the desktop); no opening or poster 
 one transition for every scene change; the sizes shot has no words; caption gaps and one ghosted caption at 1.2 s;
 the pointer is missing from the typing and its last click lands on blank card; the end card doesn't loop.
 
-Still open: Satvik's ears on v4; the picture fixes above; the install shot waits for the second-Mac test.
+Satvik on v4 (music + effects): looks good. `cuts/keep-working-v4-sfx.mp4` is the current best version.
+
+Still open: the picture fixes above; the install shot waits for the second-Mac test.
