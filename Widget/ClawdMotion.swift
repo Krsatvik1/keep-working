@@ -470,6 +470,7 @@ enum ClawdMotion {
 
 /// Draws one moment of the character. `t` is wall-clock seconds; quantise it to choose a frame rate.
 struct ClawdSprite: View {
+    @Environment(\.dimmed) private var dimmed
     let mood: Mood
     let t: Double
     var px: CGFloat = 6
@@ -524,10 +525,12 @@ struct ClawdSprite: View {
     /// flip-book applies the mood's shade once over the whole stack instead.
     var toned = true
     private var color: AnyShapeStyle {
-        let ink: Color = mood == .waiting ? Pulse.clay : .primary
-        return AnyShapeStyle(ink.opacity(toned ? ClawdSprite.tone(mood) : 1))
+        // Dimmed, macOS turns colour into translucent white: solid white keeps the character crisp.
+        let ink: Color = dimmed ? .white : mood == .waiting ? Pulse.clay : .primary
+        return AnyShapeStyle(ink.opacity(toned ? ClawdSprite.tone(mood, dimmed: dimmed) : 1))
     }
-    static func tone(_ m: Mood) -> Double {
+    static func tone(_ m: Mood, dimmed: Bool = false) -> Double {
+        if dimmed { return m == .resting || m == .sleeping ? 0.75 : 1 }
         switch m { case .waiting: return 1; case .working, .done: return 0.85; case .resting, .sleeping: return 0.45 }
     }
 }
@@ -548,6 +551,7 @@ struct ClawdLoop: View {
     var facing = 1.0
 
     @Environment(\.filmTime) private var film
+    @Environment(\.dimmed) private var dimmed
 
     var body: some View {
         let fps = act == nil ? ClawdMotion.fps(mood) : 15
@@ -567,7 +571,7 @@ struct ClawdLoop: View {
         FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
         .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
         .compositingGroup()
-        .opacity(ClawdSprite.tone(mood))
+        .opacity(ClawdSprite.tone(mood, dimmed: dimmed))
         #endif
     }
 
@@ -586,6 +590,7 @@ struct WalkerBook: View {
     var px: CGFloat = 4.5
 
     @Environment(\.filmTime) private var film
+    @Environment(\.dimmed) private var dimmed
 
     var body: some View {
         let fps = ClawdMotion.Walk.fps
@@ -601,7 +606,7 @@ struct WalkerBook: View {
         FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
             .frame(width: width, height: ClawdSprite.size(px: px).height)
             .compositingGroup()
-            .opacity(ClawdSprite.tone(.working))
+            .opacity(ClawdSprite.tone(.working, dimmed: dimmed))
         #endif
     }
 
