@@ -21,6 +21,9 @@ struct PulseEntry: TimelineEntry {
     var actTick: Int? = nil
     /// How the walk along the bar is paused by snapshot acts, so it always picks up where it stopped.
     var walk = WalkPlan()
+    /// The hero's mood as the character shows it, when that differs from the session's: a state change that
+    /// arrives mid-beat keeps the old loop until the beat, where the two loops meet on the same key pose.
+    var characterMood: Mood? = nil
 }
 
 /// The walk along the bar runs on its own clock, which stops while the hero takes a snapshot. Without this the
@@ -59,7 +62,9 @@ enum ImageArrival {
             d.set(image, forKey: "arrival.image")
             if sameSession {
                 let len = ClawdMotion.actLength
-                let start = (now.timeIntervalSince1970 / len).rounded(.up) * len
+                // At least a full beat away, so the beat before the act has not started yet and can ease out
+                // of the walk; never mid-beat.
+                let start = ((now.timeIntervalSince1970 + Beat.seconds) / len).rounded(.up) * len
                 d.set(start, forKey: "arrival.start")
                 d.set(previous, forKey: "arrival.previous")
                 // The walk stands still for the act: it loses that many beats from here on.
@@ -154,6 +159,17 @@ struct PulseProvider: TimelineProvider {
             }
             entries.sort { $0.date < $1.date }
         }
+        // The hero's mood changed since the last timeline: the base entry starts mid-beat, so it keeps the old
+        // loop and the new one starts on the next beat. Remembered per size, since each size asks for its own.
+        if let hero = ordered(base.sessions).first {
+            let key = "hero.\(context.family)"
+            let last = UserDefaults.standard.string(forKey: key + ".mood").flatMap(Mood.init(rawValue:))
+            if UserDefaults.standard.string(forKey: key + ".id") == hero.id, let last, last != hero.mood {
+                base.characterMood = last
+            }
+            UserDefaults.standard.set(hero.id, forKey: key + ".id")
+            UserDefaults.standard.set(hero.mood.rawValue, forKey: key + ".mood")
+        }
         let plan = ImageArrival.walkPlan
         base.walk = plan
         for i in entries.indices { entries[i].walk = plan }
@@ -175,6 +191,7 @@ private struct HeroActKey: EnvironmentKey { static let defaultValue: ClawdMotion
 private struct DevelopingKey: EnvironmentKey { static let defaultValue = false }
 private struct ActTickKey: EnvironmentKey { static let defaultValue: Int? = nil }
 private struct WalkPlanKey: EnvironmentKey { static let defaultValue: WalkPlan? = nil }
+private struct HeldMoodKey: EnvironmentKey { static let defaultValue: Mood? = nil }
 private struct FilmTimeKey: EnvironmentKey { static let defaultValue: Double? = nil }
 private struct DevelopAmountKey: EnvironmentKey { static let defaultValue: Double? = nil }
 
@@ -196,6 +213,10 @@ enum Glide {
 }
 
 extension EnvironmentValues {
+    var heldMood: Mood? {
+        get { self[HeldMoodKey.self] }
+        set { self[HeldMoodKey.self] = newValue }
+    }
     var walkPlan: WalkPlan? {
         get { self[WalkPlanKey.self] }
         set { self[WalkPlanKey.self] = newValue }
@@ -580,6 +601,7 @@ struct Hero: View {
     @Environment(\.imageDeveloping) private var developing
     @Environment(\.heroActTick) private var actTick
     @Environment(\.walkPlan) private var walkPlan
+    @Environment(\.heldMood) private var heldMood
     @Environment(\.filmTime) private var film
     @Environment(\.developAmount) private var developAmount
     @Environment(\.pulseTick) private var tick
@@ -636,23 +658,33 @@ struct Hero: View {
     }
 
     @ViewBuilder private func character(in r: CGRect) -> some View {
-        // A different loop is a different view, swapped in a cut: both sit on the same key pose at the beat,
-        // and a crossfade would show two characters at once (on the desktop the overlap glows white).
-        let key = "\(mood)|\(walkingNow)|\(heroAct.map { $0.rawValue } ?? "")"
+        // A different loop is a different view, swapped in a cut on the beat: both sides are in the same key
+        // pose there, and a crossfade would show two characters at once (on the desktop the overlap glows white).
+        let facing = facingLeft ? -1.0 : 1.0
+        let key = "\(mood)|\(walkingNow)|\(heroAct.map { $0.rawValue } ?? "")|\(facing)|\(variant.rawValue)"
         if compact {
             ClawdLoop(mood: mood, px: Self.smallPx, act: heroAct)
                 .id(key).transition(.identity).transaction { $0.animation = nil }
                 .offset(x: r.minX, y: r.minY)
         } else {
             let w = ClawdSprite.size(px: Self.heroPx).width
-            ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct)
+            ClawdLoop(mood: mood, px: Self.heroPx, walking: walkingNow, act: heroAct, facing: facing, variant: variant)
                 .id(key).transition(.identity).transaction { $0.animation = nil }
-                .scaleEffect(x: Glide.at(film, tick, span: 0.45) { facingLeft(at: $0) ? -1 : 1 })
-                .animation(Beat.morph, value: facingLeft)
                 .offset(x: r.minX + max(0, r.width - w) * standX, y: r.minY)
                 .animation(Beat.linear, value: standX)
         }
     }
+
+    /// Which version of the loop this beat plays: easing into the walk, easing out of it, or turning round.
+    private var variant: ClawdMotion.Variant {
+        guard walks, heroAct == nil else { return .steady }
+        if !moving(tick) { return facingLeft(at: tick) != facingLeft(at: tick - 1) ? .turn : .steady }
+        if !moving(tick - 1) { return .start }
+        if !moving(tick + 1) { return .stop }
+        return .steady
+    }
+    private func moving(_ t: Int) -> Bool { position(at: t) != position(at: t - 1) }
+
 
     private var link: some View {
         OpenLink(url: s.url) {
@@ -741,7 +773,8 @@ struct Hero: View {
 
     /// Working, it walks the bar: five beats across at a steady pace (the trot loops on top), a beat stopped
     /// at the end to turn and look about, five beats back, a beat stopped. Other moods stay on their step.
-    private var mood: Mood { s.mood }
+    /// The character's mood. A change that lands mid-beat waits for the next beat (see `characterMood`).
+    private var mood: Mood { heldMood ?? s.mood }
     private var walks: Bool { mood == .working }
     private var walkingNow: Bool { heroAct == nil && walks && position(at: tick) != position(at: tick - 1) }
     private var facingLeft: Bool { facingLeft(at: tick) }
@@ -953,6 +986,7 @@ struct PulseWidgetView: View {
             .environment(\.imageDeveloping, entry.developing)
             .environment(\.heroActTick, entry.actTick)
             .environment(\.walkPlan, entry.walk)
+            .environment(\.heldMood, entry.characterMood)
         .containerBackground(for: .widget) {
             if smallWaiting {
                 LinearGradient(colors: [Pulse.clay.opacity(0.28), Pulse.clay.opacity(0.06)], startPoint: .top, endPoint: .bottom)

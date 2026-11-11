@@ -41,11 +41,33 @@ enum ClawdMotion {
 
     // MARK: Moods
 
+    /// The beat a loop is played on. Most beats are `steady`. The walk's first and last beats ease the steps
+    /// in and out, so the walk meets the standing key pose; the beat at the end of the bar turns around. Each
+    /// of these is one beat long, so it starts and ends on the beat.
+    enum Variant: String { case steady, start, stop, turn }
+    static let turnTime = 0.45
+
     /// `walking` only matters while working: on the bar it walks, at either end it stops and looks about.
-    static func pose(_ mood: Mood, t: Double, walking: Bool = true, turn: Double = 1) -> Pose {
+    /// `turn` is the way it faces: 1 right, −1 left.
+    static func pose(_ mood: Mood, t: Double, walking: Bool = true, turn: Double = 1,
+                     variant: Variant = .steady) -> Pose {
         var p: Pose
         switch mood {
-        case .working: p = walking ? walk(t) : stand(t)
+        case .working where walking:
+            let env: Double
+            switch variant {
+            case .start: env = ramp(t, 0, 0.4)
+            case .stop: env = 1 - ramp(t, 1.6, 2.0)
+            default: env = 1
+            }
+            p = walk(t, amount: env)
+        case .working:
+            p = stand(t)
+            // Turning round at the end of the bar: from the old way to the new, edge-on in between.
+            if variant == .turn {
+                let c = -cos(.pi * ease(t / turnTime))
+                p.turn = (c < 0 ? -1 : 1) * max(0.35, abs(c))   // never paper-thin
+            }
         case .waiting: p = waiting(t)
         case .done: p = celebrate(t)
         case .resting: p = resting(t)
@@ -62,20 +84,21 @@ enum ClawdMotion {
     // (walking to standing at the end of the bar, any mood to the snapshot and back) is a cut between two key
     // poses that match, never a jump from mid-stride.
     static let stride = 0.5    // seconds per full cycle; two steps, four to a beat
-    static func walk(_ t: Double) -> Pose {
+    /// `amount` scales the whole gait, 0 standing … 1 full trot, so the walk can ease in and out.
+    static func walk(_ t: Double, amount k: Double = 1) -> Pose {
         var p = Pose()
         let a = 2 * .pi * t / stride, s = sin(a), c = cos(a)
-        let upA = max(0, s) * 1.1, upB = max(0, -s) * 1.1
-        p.feet = [(-1.0 * c, upA), (1.0 * c, upB), (-1.0 * c, upA), (1.0 * c, upB)]
-        p.lift = 0.6 * abs(s)
-        p.squash = 0.12 * cos(2 * a)
-        let swing = 0.9 * sin(a)                // level with the body on every beat, so a cut matches
-        p.armL = -0.25 + swing
-        p.armR = -0.25 - swing
+        let upA = max(0, s) * 1.1 * k, upB = max(0, -s) * 1.1 * k
+        p.feet = [(-1.0 * c * k, upA), (1.0 * c * k, upB), (-1.0 * c * k, upA), (1.0 * c * k, upB)]
+        p.lift = 0.6 * abs(s) * k
+        p.squash = 0.12 * cos(2 * a) * k
+        let swing = 0.9 * sin(a) * k
+        p.armL = -0.3 + 0.05 * k + swing
+        p.armR = -0.3 + 0.05 * k - swing
         let u = t.truncatingRemainder(dividingBy: 4.0)
-        p.eyeDX = 0.7 - 0.7 * (ramp(u, 0.6, 0.8) - ramp(u, 1.2, 1.4))   // a look at you, then back ahead
-        p.eyeDY = -0.25 * abs(sin(a - 0.6))
-        p.eyeOpen = blink(t, every: 4.0, at: 3.0) * (1 - 0.3 * max(0, cos(2 * a)))
+        p.eyeDX = (0.7 - 0.7 * (ramp(u, 0.6, 0.8) - ramp(u, 1.2, 1.4))) * k   // a look at you, then back ahead
+        p.eyeDY = -0.25 * abs(sin(a - 0.6)) * k
+        p.eyeOpen = blink(t, every: 4.0, at: 3.0) * (1 - 0.3 * max(0, cos(2 * a)) * k)
         return p
     }
 
@@ -425,12 +448,14 @@ struct ClawdSprite: View {
     var turn = 1.0
     /// When set, `t` is seconds into this one-off act instead of the mood's loop.
     var act: ClawdMotion.Act? = nil
+    var variant: ClawdMotion.Variant = .steady
 
     static let cols: CGFloat = 22, rows: CGFloat = 14
     static func size(px: CGFloat) -> CGSize { CGSize(width: cols * px, height: rows * px * 1.7) }
 
     var body: some View {
-        let f = ClawdMotion.frame(act.map { ClawdMotion.act($0, t: t) } ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn))
+        let f = ClawdMotion.frame(act.map { var p = ClawdMotion.act($0, t: t); p.turn *= turn; return p }
+            ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn, variant: variant))
         let py = px * 1.7
         Canvas { ctx, size in
             let H = size.height
@@ -488,33 +513,42 @@ struct ClawdLoop: View {
     var walking = true
     /// A one-off act in place of the mood's loop (it plays once: the timeline swaps it out when it ends).
     var act: ClawdMotion.Act? = nil
+    /// The way it faces, drawn into the frames. (Mirroring the flip-book instead would also mirror the spin
+    /// that shows its frames, and play them backwards.)
+    var facing = 1.0
+    var variant: ClawdMotion.Variant = .steady
 
     @Environment(\.filmTime) private var film
 
+    /// A one-beat variant runs exactly one beat.
+    private var period: Double {
+        if act != nil { return ClawdMotion.actLength }
+        return variant == .steady ? ClawdMotion.loop(mood) : Beat.seconds
+    }
+
     var body: some View {
         let fps = act == nil ? ClawdMotion.fps(mood) : 15
-        let period = act == nil ? ClawdMotion.loop(mood) : ClawdMotion.actLength
         #if RENDER_HARNESS
         if let film {
             // The film's clock, cut to the flip-book's frame rate, exactly as the desktop shows it.
             let t = (film * fps).rounded(.down) / fps
-            ClawdSprite(mood: mood, t: act == nil ? t : t.truncatingRemainder(dividingBy: period), px: px,
-                        walking: walking, act: act)
+            sprite(act == nil && variant == .steady ? t : t.truncatingRemainder(dividingBy: period), toned: true)
         } else {
             TimelineView(.animation) { tl in
                 let t = (tl.date.timeIntervalSinceReferenceDate * fps).rounded(.down) / fps
-                ClawdSprite(mood: mood, t: act == nil ? t : t.truncatingRemainder(dividingBy: period), px: px,
-                            walking: walking, act: act)
+                sprite(act == nil && variant == .steady ? t : t.truncatingRemainder(dividingBy: period), toned: true)
             }
         }
         #else
-        FlipBook(period: period, fps: fps) { t in
-            ClawdSprite(mood: mood, t: t, px: px, walking: walking, act: act, toned: false)
-        }
+        FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
         .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
         .compositingGroup()
         .opacity(ClawdSprite.tone(mood))
         #endif
+    }
+
+    private func sprite(_ t: Double, toned: Bool) -> ClawdSprite {
+        ClawdSprite(mood: mood, t: t, px: px, walking: walking, turn: facing, act: act, variant: variant, toned: toned)
     }
 }
 
@@ -556,8 +590,11 @@ struct FlipBook<Frame: View>: View {
             var p = Path()
             let c = CGPoint(x: r.midX, y: r.midY)
             p.move(to: c)
-            p.addArc(center: c, radius: r.width / 2, startAngle: .radians(up - Double(index + 1) * w - e),
-                     endAngle: .radians(up - Double(index) * w + e), clockwise: false)
+            // On the desktop the spin runs the other way to SwiftUI's angles, so the slices are laid out going
+            // round the other way too: laid out as before, every loop played backwards (the snapshot danced
+            // first and took the picture last).
+            p.addArc(center: c, radius: r.width / 2, startAngle: .radians(up + Double(index) * w - e),
+                     endAngle: .radians(up + Double(index + 1) * w + e), clockwise: false)
             p.closeSubpath()
             return p
         }

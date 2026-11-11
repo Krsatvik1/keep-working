@@ -88,3 +88,11 @@ Swaps between animations (walking and standing at the end of the bar, a mood cha
 never crossfades: two flip-books overlapping glow white on the desktop. To make the cuts invisible, every loop
 repeats on the 2 s beat and sits in the same calm key pose on each beat (feet down, arms low, eyes open), which
 is the only moment the desktop can swap one animation for another.
+
+Three more things learned on the desktop (11 Nov):
+- The clock-hand spin turns the other way to SwiftUI's angles, so the flip-book's slices are laid out to match;
+  laid out the other way, every loop played backwards.
+- Never mirror the flip-book (`scaleEffect(x: -1)`) to face left: that mirrors the spin as well. Facing is drawn
+  into the frames, and the turn at the end of the bar is a one-beat loop of its own.
+- The walk's first and last beats ease the steps in and out, and a state change that lands mid-beat waits for the
+  next beat, so every swap happens on the beat between matching poses.
