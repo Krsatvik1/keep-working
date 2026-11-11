@@ -36,11 +36,12 @@ private enum Icons {
         ("Maps", "/System/Applications/Maps.app"), ("Music", "/System/Applications/Music.app"), ("Notes", "/System/Applications/Notes.app"),
         ("Safari", "/Applications/Safari.app"), ("System Settings", "/System/Applications/System Settings.app"),
     ].map { ($0.0, $0.1.isEmpty ? app : file($0.1)) }
-    static let gallery: [(String, NSImage)] = [
-        ("Keep Working", ""), ("Calendar", "/System/Applications/Calendar.app"), ("Clock", "/System/Applications/Clock.app"),
-        ("Contacts", "/System/Applications/Contacts.app"), ("Find My", "/System/Applications/FindMy.app"),
-        ("Notes", "/System/Applications/Notes.app"), ("Photos", "/System/Applications/Photos.app"),
-        ("Reminders", "/System/Applications/Reminders.app"), ("Weather", "/System/Applications/Weather.app"),
+    static let drawer: [(String, NSImage)] = [
+        ("Clock", "/System/Applications/Clock.app"), ("Contacts", "/System/Applications/Contacts.app"),
+        ("Find My", "/System/Applications/FindMy.app"), ("Home", "/System/Applications/Home.app"),
+        ("Journal", "/System/Applications/Journal.app"), ("Keep Working", ""), ("Notes", "/System/Applications/Notes.app"),
+        ("Photos", "/System/Applications/Photos.app"), ("Podcasts", "/System/Applications/Podcasts.app"),
+        ("Reminders", "/System/Applications/Reminders.app"), ("Safari", "/Applications/Safari.app"),
     ].map { ($0.0, $0.1.isEmpty ? app : file($0.1)) }
 }
 
@@ -113,12 +114,13 @@ struct InstallFrame: View {
     // Desktop points (MacDesktop is 1440 x 900).
     static let finder = CGRect(x: 340, y: 170, width: 760, height: 440)
     static let settings = CGRect(x: 300, y: 110, width: 780, height: 540)
-    static let gallery = CGRect(x: 230, y: 330, width: 980, height: 470)
+    static let gallery = CGRect(x: 280, y: 449, width: 840, height: 451)
     static let dialogCenter = CGPoint(x: 720, y: 400)
     static let sheetCenter = CGPoint(x: 690, y: 330)
     static let menuAt = CGPoint(x: 900, y: 560)
     static let slot = CGPoint(x: 24, y: 46)                   // where the widget lands
     static let medium = CGSize(width: 344, height: 164)
+    static let xl = CGSize(width: 704, height: 344)
     static let previewScale = 0.6
     static var mediumPreview: CGRect {
         CGRect(x: gallery.minX + 250 + 98 + 28, y: gallery.minY + 104, width: medium.width * previewScale, height: medium.height * previewScale)
@@ -131,8 +133,8 @@ struct InstallFrame: View {
         (5.2, 1.6, 720, 400), (6.7, 1.6, 720, 400), (7.3, 1.34, 720, 390), (7.5, 1.34, 720, 390),
         (8.1, 1.8, 540, 270), (8.75, 1.8, 540, 270),
         (9.5, 1.42, 700, 370), (14.2, 1.42, 700, 370), (14.85, 1.75, 900, 560), (16.3, 1.75, 900, 560),
-        (16.9, 1.45, 720, 480), (17.75, 1.45, 720, 480), (18.7, 1.0417, 720, 440), (20.7, 1.0417, 720, 440),
-        (21.6, 2.0, 480, 240), (23.7, 2.0, 480, 240), (24.5, 1.0417, 720, 440),
+        (16.9, 1.45, 700, 496), (17.75, 1.45, 700, 496), (18.7, 1.0417, 720, 440), (20.7, 1.0417, 720, 440),
+        (21.6, 1.5, 640, 320), (23.7, 1.5, 640, 320), (24.5, 1.0417, 720, 440),
     ]
     /// Where the pointer is: eased between these (time, desktop point).
     private static let path: [(Double, CGPoint)] = [
@@ -145,9 +147,9 @@ struct InstallFrame: View {
         (11.75, CGPoint(x: 690, y: 447)), (12.35, CGPoint(x: 690, y: 447)), (12.9, CGPoint(x: 900, y: 590)),
         (13.6, CGPoint(x: 900, y: 590)), (13.95, CGPoint(x: 324, y: 134)), (14.15, CGPoint(x: 324, y: 134)),
         (14.85, CGPoint(x: 900, y: 560)), (15.2, CGPoint(x: 900, y: 560)), (15.8, CGPoint(x: 1000, y: 705)),
-        (16.4, CGPoint(x: 1000, y: 705)), (17.4, CGPoint(x: 739, y: 487)), (17.7, CGPoint(x: 739, y: 487)),
-        (19.0, CGPoint(x: 196, y: 128)), (19.4, CGPoint(x: 196, y: 128)), (20.0, CGPoint(x: 1150, y: 772)),
-        (20.4, CGPoint(x: 1150, y: 772)), (21.3, CGPoint(x: 1240, y: 860)),
+        (16.4, CGPoint(x: 1000, y: 705)), (17.15, CGPoint(x: 582, y: 813)), (17.7, CGPoint(x: 582, y: 813)),
+        (19.0, CGPoint(x: 376, y: 218)), (19.4, CGPoint(x: 376, y: 218)), (20.0, CGPoint(x: 1068, y: 876)),
+        (20.4, CGPoint(x: 1068, y: 876)), (21.3, CGPoint(x: 1180, y: 700)),
     ]
     /// Clicks: time, and whether it's a right-click.
     private static let clicks: [(Double, Bool)] = [
@@ -158,13 +160,14 @@ struct InstallFrame: View {
     private static let holds: [(Double, Double)] = [(1.8, 3.0), (17.6, 19.0)]
 
     private static let captions: [(Double, Double, String, String)] = [
-        (0.3, 4.9, "1", "Drag Keep Working into Applications, then open it."),
-        (4.9, 7.6, "2", "macOS stops it the first time. Click Done."),
-        (7.6, 12.4, "3", "System Settings, Privacy & Security: Open Anyway."),
-        (12.4, 14.6, "3", "Then Touch ID or your password."),
-        (14.6, 16.9, "4", "Right-click the desktop, choose Edit Widgets."),
-        (16.9, 20.9, "4", "Drag a Keep Working widget onto the desktop."),
-        (20.9, 24.2, "", "That's it. It keeps you posted."),
+        (0.3, 4.9, "1", "Drag it into Applications, then open it."),
+        (4.9, 7.6, "2", "macOS stops it once. Click Done."),
+        (7.6, 12.4, "3", "Privacy & Security: Open Anyway."),
+        (12.4, 14.6, "3", "Then Touch ID."),
+        (14.6, 16.9, "4", "Right-click the desktop: Edit Widgets."),
+        (16.9, 18.6, "4", "Pick a size."),
+        (18.6, 20.9, "4", "Drag it onto the desktop."),
+        (20.9, 24.2, "", "That's it."),
     ]
 
     // MARK: Body
@@ -612,69 +615,124 @@ struct InstallFrame: View {
             .offset(x: Self.menuAt.x + 2, y: Self.menuAt.y)
     }
 
+    /// The widget gallery as macOS Sonoma draws it: a vibrant panel over the bottom of the screen (it covers
+    /// the Dock), apps on the left, the widget's sizes on the right with a caption under each, and a bar
+    /// with "Drag a widget…" and Done. Laid out from a screenshot of the real one.
     private var galleryPanel: some View {
         let g = Self.gallery
-        let k = ramp(t, 16.3, 16.75) * (1 - ramp(t, 20.25, 20.7))
+        let k = ramp(t, 16.3, 16.75) * (1 - ramp(t, 20.25, 20.6))
         let film = FilmFrame(t: 5)
-        let p = Self.mediumPreview
-        let previews: [(String, WidgetFamily, CGSize, CGFloat)] = [
-            ("Small", .systemSmall, CGSize(width: 164, height: 164), g.minX + 250),
-            ("Medium", .systemMedium, Self.medium, p.minX),
-            ("Large", .systemLarge, CGSize(width: 344, height: 344), p.maxX + 28),
-        ]
+        let left = 196.0
+        let hover = t >= 17.15 && t < 17.7
         return ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass").font(.system(size: 12))
-                        Text("Search Widgets").font(.system(size: 13))
+            // The vibrancy: the wallpaper behind, blurred and lifted.
+            if let w = Self.wallpaper {
+                Image(nsImage: w).resizable().interpolation(.high).scaledToFill()
+                    .frame(width: MacDesktop.size.width, height: MacDesktop.size.height).clipped()
+                    .offset(x: -g.minX, y: -g.minY)
+                    .frame(width: g.width, height: g.height, alignment: .topLeading).clipped()
+                    .blur(radius: 26, opaque: true)
+                    .saturation(1.25)
+                    .overlay(Color.white.opacity(0.10))
+            }
+            // Apps
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .medium))
+                    Text("Search Widgets").font(.system(size: 12))
+                    Spacer()
+                }
+                .foregroundStyle(.white.opacity(0.75)).padding(.horizontal, 8).frame(height: 23)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.white.opacity(0.16)))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 0.6))
+                .padding(.horizontal, 12).padding(.top, 16).padding(.bottom, 4)
+                ForEach(Array(Icons.drawer.enumerated()), id: \.offset) { i, app in
+                    HStack(spacing: 8) {
+                        img(app.1, 22)
+                        Text(app.0).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white)
                         Spacer()
                     }
-                    .foregroundStyle(Dark.dim).padding(.horizontal, 10).frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
-                    .padding(.bottom, 10)
-                    ForEach(Array(Icons.gallery.enumerated()), id: \.offset) { i, app in
-                        HStack(spacing: 9) {
-                            img(app.1, 24)
-                            Text(app.0).font(.system(size: 13)).foregroundStyle(Dark.text)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 8).frame(height: 34)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(i == 0 ? Color.white.opacity(0.13) : .clear))
+                    .padding(.horizontal, 7).frame(height: 33)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(app.0 == "Keep Working" ? Color.white.opacity(0.2) : .clear))
+                    .padding(.horizontal, 10)
+                }
+            }
+            .frame(width: left, height: g.height - 49, alignment: .top).clipped()
+            Rectangle().fill(Color.white.opacity(0.14)).frame(width: 0.8, height: g.height).offset(x: left)
+            // Sizes
+            Text("Keep Working").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.65))
+                .offset(x: left + 17, y: 10)
+            ForEach(Array(Self.drawerSizes.enumerated()), id: \.offset) { i, w in
+                let lifted = w.family == .systemExtraLarge && t >= 17.6 && t < 19.05
+                film.chrome(w.size) { film.content(w.family, w.size) }
+                    .scaleEffect(w.scale, anchor: .topLeading)
+                    .frame(width: w.size.width * w.scale, height: w.size.height * w.scale, alignment: .topLeading)
+                    .opacity(lifted ? 0.3 : 1)
+                    .offset(x: w.at.x - g.minX, y: w.at.y - g.minY)
+                if w.family != .systemExtraLarge {
+                    VStack(spacing: 2) {
+                        Text("Claude sessions").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        Text("Your latest Claude sessions.")
+                            .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.8)).multilineTextAlignment(.center).lineSpacing(1)
                     }
-                    Spacer()
+                    .frame(width: 210)
+                    .position(x: w.captionCenterX - g.minX, y: w.captionTop - g.minY + 14)
                 }
-                .padding(18)
-                .frame(width: 230)
-                .background(Color.white.opacity(0.03))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Keep Working").font(.system(size: 20, weight: .bold)).foregroundStyle(Dark.text)
-                    Text("Your Claude sessions, at a glance.").font(.system(size: 13)).foregroundStyle(Dark.dim)
-                    Spacer()
-                    HStack { Spacer(); Text("Done").font(.system(size: 13, weight: .medium)).foregroundStyle(Dark.text)
-                        .frame(width: 84, height: 30)
-                        .background(Capsule().fill(t >= 20.2 && t < 20.35 ? Color.white.opacity(0.28) : Dark.button)) }
-                }
-                .padding(.leading, 20).padding(.top, 24).padding(.trailing, 22).padding(.bottom, 14)
             }
-            .frame(width: g.width, height: g.height)
-            .background(Color(white: 0.16).opacity(0.97))
-            .macWindow(22)
-            ForEach(0..<previews.count, id: \.self) { i in
-                let (name, family, size, x) = previews[i]
-                let lifted = i == 1 && t >= 17.6 && t < 19.2
-                VStack(spacing: 8) {
-                    film.chrome(size) { film.content(family, size) }
-                        .scaleEffect(Self.previewScale, anchor: .topLeading)
-                        .frame(width: size.width * Self.previewScale, height: size.height * Self.previewScale, alignment: .topLeading)
-                    Text(name).font(.system(size: 12)).foregroundStyle(Dark.dim)
-                }
-                .opacity(lifted ? 0.35 : 1)
-                .offset(x: x - g.minX, y: p.minY - g.minY)
+            if hover {
+                let xl = Self.drawerSizes[3]
+                Circle().fill(Color(red: 0.2, green: 0.78, blue: 0.35)).frame(width: 14, height: 14)
+                    .overlay(Image(systemName: "plus").font(.system(size: 8, weight: .heavy)).foregroundStyle(.white))
+                    .position(x: xl.at.x - g.minX + 4, y: xl.at.y - g.minY + 4)
+                Text("Claude sessions – Extra Large").font(.system(size: 10.5)).foregroundStyle(.white)
+                    .padding(.horizontal, 6).frame(height: 18)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color(white: 0.15).opacity(0.95)))
+                    .offset(x: xl.at.x - g.minX + 85, y: xl.at.y - g.minY + 56)
             }
+            // Scroll bars
+            Capsule().fill(Color.white.opacity(0.55)).frame(width: 4.5, height: 330).offset(x: g.width - 10, y: 14)
+            Capsule().fill(Color.white.opacity(0.35)).frame(width: 4.5, height: 260).offset(x: left - 9, y: 60)
+            // The bar along the bottom
+            HStack {
+                Text("Drag a widget to place it on the desktop…").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                Spacer()
+                Text("Done").font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white)
+                    .frame(width: 68, height: 25)
+                    .background(Capsule().fill(t >= 20.2 && t < 20.35 ? Color(red: 0.0, green: 0.38, blue: 0.85) : Dark.blue))
+            }
+            .padding(.horizontal, 16).frame(width: g.width, height: 49)
+            .background(Color.black.opacity(0.16))
+            .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.12)).frame(height: 0.8) }
+            .offset(y: g.height - 49)
         }
-        .offset(x: g.minX, y: g.minY + 260 * (1 - k))
+        .frame(width: g.width, height: g.height, alignment: .topLeading)
+        .clipShape(UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14, style: .continuous))
+        .overlay(UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.25), radius: 20, y: -4)
+        .offset(x: g.minX, y: g.minY + 140 * (1 - k))
         .opacity(min(1, k * 2))
+    }
+
+    private static let wallpaper = NSImage(contentsOfFile: "build/film-assets/wallpaper.jpg")
+
+    /// The four sizes in the drawer, in desktop points, at the scale the real drawer shows each one.
+    struct DrawerSize { let family: WidgetFamily; let size: CGSize; let scale: Double; let at: CGPoint; let captionCenterX: Double; let captionTop: Double }
+    static var drawerSizes: [DrawerSize] {
+        let g = gallery, x0 = g.minX + 196, mid = g.minY + 137, cap = g.minY + 241
+        func centred(_ f: WidgetFamily, _ size: CGSize, _ scale: Double, _ cx: Double) -> DrawerSize {
+            DrawerSize(family: f, size: size, scale: scale,
+                       at: CGPoint(x: x0 + cx - size.width * scale / 2, y: mid - size.height * scale / 2),
+                       captionCenterX: x0 + cx, captionTop: cap)
+        }
+        return [
+            centred(.systemSmall, CGSize(width: 164, height: 164), 0.51, 105),
+            centred(.systemMedium, CGSize(width: 344, height: 164), 0.51, 315),
+            centred(.systemLarge, CGSize(width: 344, height: 344), 0.46, 525),
+            DrawerSize(family: .systemExtraLarge, size: CGSize(width: 704, height: 344), scale: 0.256,
+                       at: CGPoint(x: x0 + 16, y: g.minY + 320), captionCenterX: x0 + 106, captionTop: g.minY + 418),
+        ]
     }
 
     // MARK: Drags, the placed widget, the pointer
@@ -690,8 +748,8 @@ struct InstallFrame: View {
         if t >= 17.6 && t < 19.0 {
             let film = FilmFrame(t: 5)
             let grow = ramp(t, 17.7, 18.9)
-            let s = Self.previewScale + (1 - Self.previewScale) * grow
-            film.chrome(Self.medium) { film.content(.systemMedium, Self.medium) }
+            let s = 0.256 + (1 - 0.256) * grow
+            film.chrome(Self.xl) { film.content(.systemExtraLarge, Self.xl) }
                 .scaleEffect(s)
                 .opacity(0.9)
                 .position(x: pointer.x, y: pointer.y)
@@ -703,7 +761,7 @@ struct InstallFrame: View {
             // It drops into its slot with a small settle, then runs on its own clock.
             let x = min(1, max(0, (t - 19.0) / 0.35)), back = 1 + 2.3 * pow(x - 1, 3) + 1.3 * pow(x - 1, 2)
             let film = FilmFrame(t: 5 + (t - 19.0))
-            film.chrome(Self.medium) { film.content(.systemMedium, Self.medium) }
+            film.chrome(Self.xl) { film.content(.systemExtraLarge, Self.xl) }
                 .scaleEffect(0.96 + 0.04 * back)
                 .offset(x: Self.slot.x, y: Self.slot.y)
         }
@@ -758,7 +816,7 @@ struct InstallFrame: View {
                 .background(FilmFrame.ink.opacity(0.92), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                 .shadow(color: .black.opacity(0.22), radius: 16, y: 8)
                 .opacity(inK * (1 - ramp(t, c.1 - 0.12, c.1)))
-                .position(x: 960, y: 1012 + 8 * (1 - inK))
+                .position(x: 960, y: (c.0 >= 16.9 && c.0 < 18.6 ? 76 : 1012) + 8 * (1 - inK))
             }
         }
     }

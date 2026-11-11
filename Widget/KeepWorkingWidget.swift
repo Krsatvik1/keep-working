@@ -1064,7 +1064,7 @@ struct KeepWorkingWidget: Widget {
             PulseWidgetView(entry: entry)
         }
         .configurationDisplayName("Claude sessions")
-        .description("Your 10 most recent Claude sessions. The one that needs you comes first. Click to open it.")
+        .description("Your latest Claude sessions.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
