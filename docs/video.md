@@ -126,3 +126,5 @@ Satvik on the debanded v5: clean. `cuts/keep-working-v5-desktop.mp4` is the curr
 Music ending (11 Nov): the 2 s fade-out ran over a strong beat. Now the track jumps forward exactly 10 bars on a beat
 as the download card arrives (`MUSIC_EDIT=35.95:20.0 Tools/film-sfx.py ...`), so it plays its own last hit at
 ~39.5 s and stops. The faded version is kept as `cuts/keep-working-v5-desktop-fadeout.mp4`.
+
+Satvik on the new music ending: sounds right. Final: `cuts/keep-working-v5-desktop.mp4` (full quality), `-preview.mp4` (13 MB).
