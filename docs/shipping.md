@@ -59,3 +59,6 @@ still untested.
 Route settled (Satvik, 11 Nov): the DMG with the one-time Open Anyway step is the only route. No Terminal
 installer and no Apple Developer account for now. The repo is MIT-licensed, its README leads with download,
 install and privacy, and the repo's homepage is the download page.
+
+v1.1 (12 Nov 2026): lighter under load (8% of a core instead of 19% with four busy sessions). Released as the
+latest GitHub release; the download page links `releases/latest/download/KeepWorking.dmg`, so it serves v1.1.
