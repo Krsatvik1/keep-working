@@ -114,7 +114,7 @@ else:
     put(at(3.02), whoosh(up=False), 0.28)                           # the chat closes
     for w in (4.0, 8.02, 10.0):                                     # a step ticks over
         put(at(w), blip(E6, 0.06), 0.22)
-    put(at(12.62), shutter(), 0.62)                                 # the snapshot
+    put(at(13.52), shutter(), 0.62)                                 # the snapshot (flash is 1.5 s into the act)
     put(at(18.06), notes([G5, D6], step=0.11, last=0.2), 0.40)      # needs you: a question
     put(at(21.60), click(), 0.55)                                   # click "answer in Claude"
     put(at(21.78), whoosh(up=True), 0.28)

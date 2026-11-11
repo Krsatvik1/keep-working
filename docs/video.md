@@ -131,3 +131,7 @@ Satvik on the new music ending: sounds right. Final: `cuts/keep-working-v5-deskt
 
 End card link (11 Nov): the card now says `krsatvik.xyz/get-keep-working`, the download page, instead of the private
 repo. Re-rendered with the same music edit. The earlier final is kept as `cuts/keep-working-v5-desktop-github-link.mp4`.
+
+Shutter sync (11 Nov): the widget now flashes 1.5 s into the snapshot act, so in the re-render the flash came at
+13.53 s while the shutter sound stayed at 12.62 s. The sound moved to 13.52 s; the final was remixed (same music edit).
+The unsynced mix is kept as `cuts/keep-working-v5-desktop-shutter-early.mp4`.
