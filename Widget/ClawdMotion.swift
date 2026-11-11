@@ -488,6 +488,18 @@ struct ClawdSprite: View {
         let f = ClawdMotion.frame(pose ?? act.map { var p = ClawdMotion.act($0, t: t); p.turn *= turn; return p }
             ?? ClawdMotion.pose(mood, t: t, walking: walking, turn: turn))
         let py = px * 1.7
+        if dimmed {
+            // The dimmed desktop doesn't draw a Canvas at all, so the same pixels go in as shapes instead.
+            let H = Self.rows * py
+            ZStack(alignment: .topLeading) {
+                SpriteShape(frame: f, px: px, height: H).fill(color)
+                ForEach(Array(f.marks.enumerated()), id: \.offset) { _, g in
+                    MarkShape(glyph: g, px: px, height: H).fill(color).opacity(max(0, min(1, g.opacity)))
+                }
+            }
+            .frame(width: Self.cols * px, height: H)
+            .accessibilityHidden(true)
+        } else {
         Canvas { ctx, size in
             let H = size.height
             func rect(_ b: ClawdMotion.Box) -> CGRect {
@@ -519,6 +531,38 @@ struct ClawdSprite: View {
         }
         .frame(width: Self.cols * px, height: Self.rows * py)
         .accessibilityHidden(true)
+        }
+    }
+
+    /// The body with its eye holes cut out, as one shape.
+    private struct SpriteShape: Shape {
+        let frame: ClawdMotion.Frame, px: CGFloat, height: CGFloat
+        func path(in r: CGRect) -> Path {
+            let py = px * 1.7
+            func rect(_ b: ClawdMotion.Box) -> Path {
+                Path(CGRect(x: (b.x + 1) * px, y: height - (b.y + b.h) * py, width: b.w * px, height: b.h * py))
+            }
+            var solid = Path()
+            for b in frame.solid { solid = solid.union(rect(b)) }
+            for h in frame.holes { solid = solid.subtracting(rect(h)) }
+            return solid
+        }
+    }
+
+    /// A mark (the "?", the z's, the sparkles) as a shape.
+    private struct MarkShape: Shape {
+        let glyph: ClawdMotion.Glyph, px: CGFloat, height: CGFloat
+        func path(in r: CGRect) -> Path {
+            let py = px * 1.7, unit = px * glyph.scale
+            let top = height - glyph.y * py - CGFloat(glyph.bits.count) * unit
+            var path = Path()
+            for (y, row) in glyph.bits.enumerated() {
+                for (x, ch) in row.enumerated() where ch == "1" {
+                    path.addRect(CGRect(x: (glyph.x + 1) * px + CGFloat(x) * unit, y: top + CGFloat(y) * unit, width: unit, height: unit))
+                }
+            }
+            return path
+        }
     }
 
     /// Solid ink when `toned` is off, so stacked flip-book frames never add up to a brighter patch; the
@@ -568,15 +612,11 @@ struct ClawdLoop: View {
             }
         }
         #else
-        if dimmed {
-            // The dimmed desktop draws none of the flip-book (its spinning masks), so a still pose stands in.
-            sprite(0, toned: true)
-        } else {
-            FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
-            .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
-            .compositingGroup()
-            .opacity(ClawdSprite.tone(mood, dimmed: dimmed))
-        }
+        // Dimmed, the frames are drawn as shapes (ClawdSprite switches itself): the dimmed desktop skips a Canvas.
+        FlipBook(period: period, fps: fps) { t in sprite(t, toned: false) }
+        .frame(width: ClawdSprite.size(px: px).width, height: ClawdSprite.size(px: px).height)
+        .compositingGroup()
+        .opacity(ClawdSprite.tone(mood, dimmed: dimmed))
         #endif
     }
 
@@ -608,15 +648,10 @@ struct WalkerBook: View {
             }
         }
         #else
-        if dimmed {
-            // Still, where the walk has got to at this update (the flip-book doesn't draw when dimmed).
-            strip(Date().timeIntervalSince1970.truncatingRemainder(dividingBy: ClawdMotion.Walk.cycle) - offset, toned: true)
-        } else {
-            FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
-                .frame(width: width, height: ClawdSprite.size(px: px).height)
-                .compositingGroup()
-                .opacity(ClawdSprite.tone(.working, dimmed: dimmed))
-        }
+        FlipBook(period: ClawdMotion.Walk.cycle, fps: fps) { t in strip(t - offset, toned: false) }
+            .frame(width: width, height: ClawdSprite.size(px: px).height)
+            .compositingGroup()
+            .opacity(ClawdSprite.tone(.working, dimmed: dimmed))
         #endif
     }
 
